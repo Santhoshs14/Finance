@@ -1,0 +1,248 @@
+import { useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTheme } from '../context/ThemeContext';
+import TransactionTable from '../components/TransactionTable';
+import QuickAddTransaction from '../components/QuickAddTransaction';
+import { transactionsAPI, accountsAPI, importAPI } from '../services/api';
+import { getRecentFinancialMonths, getCurrentFinancialMonth } from '../utils/financialMonth';
+import { PlusIcon, ArrowUpTrayIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
+import toast from 'react-hot-toast';
+
+const fmt = (n) => '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n || 0);
+
+const FINANCIAL_MONTHS = getRecentFinancialMonths(8);
+
+export default function Transactions() {
+  const { isDark } = useTheme();
+  const queryClient = useQueryClient();
+
+  const [selectedCycle, setSelectedCycle] = useState(0); // index into FINANCIAL_MONTHS
+  const [showAdd, setShowAdd] = useState(false);
+  const [editTxn, setEditTxn] = useState(null);
+  const [showImport, setShowImport] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importAccountId, setImportAccountId] = useState('');
+  const [importPreview, setImportPreview] = useState(null);
+
+  const activeCycle = FINANCIAL_MONTHS[selectedCycle];
+
+  const { data: rawData, isLoading } = useQuery({
+    queryKey: ['transactions', activeCycle.startDate, activeCycle.endDate],
+    queryFn: async () => {
+      try {
+        const r = await transactionsAPI.getAll({ startDate: activeCycle.startDate, endDate: activeCycle.endDate });
+        return r.data.data || [];
+      } catch { return []; }
+    },
+  });
+
+  const transactions = Array.isArray(rawData) ? rawData : rawData?.transactions || [];
+
+  const { data: accounts = [] } = useQuery({
+    queryKey: ['accounts'],
+    queryFn: async () => { try { const r = await accountsAPI.getAll(); return r.data.data || []; } catch { return []; } },
+  });
+
+  const textMain = isDark ? '#f3f4f6' : '#111827';
+  const textSub  = isDark ? '#9ca3af' : '#6b7280';
+  const borderColor = isDark ? '#252f3e' : '#e5e7eb';
+
+  /* ─── Analytics ─── */
+  const analytics = useMemo(() => {
+    if (!transactions.length) return { totalSpent: 0, totalIncome: 0, topCategory: '—', dailyAvg: 0, count: 0 };
+    const totalSpent = transactions.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
+    const totalIncome = transactions.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+    const catMap = {};
+    transactions.forEach(t => { if (t.amount < 0 && t.category !== 'Income') catMap[t.category] = (catMap[t.category] || 0) + Math.abs(t.amount); });
+    const topCategory = Object.entries(catMap).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+    const days = [...new Set(transactions.filter(t => t.amount < 0).map(t => t.date))].length || 1;
+    return { totalSpent, totalIncome, topCategory, dailyAvg: totalSpent / days, count: transactions.length };
+  }, [transactions]);
+
+  /* ─── Daily grouping ─── */
+  const grouped = useMemo(() => {
+    const map = {};
+    [...transactions].sort((a, b) => b.date.localeCompare(a.date)).forEach(t => {
+      if (!map[t.date]) map[t.date] = [];
+      map[t.date].push(t);
+    });
+    return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [transactions]);
+
+  /* ─── Mutations ─── */
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['transactions'] });
+
+  const addMutation = useMutation({
+    mutationFn: (data) => transactionsAPI.create(data),
+    onSuccess: () => { toast.success('Transaction added!'); invalidate(); setShowAdd(false); setEditTxn(null); },
+    onError: () => toast.error('Failed to add transaction'),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }) => transactionsAPI.update(id, data),
+    onSuccess: () => { toast.success('Transaction updated!'); invalidate(); setShowAdd(false); setEditTxn(null); },
+    onError: () => toast.error('Failed to update'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => transactionsAPI.delete(id),
+    onSuccess: () => { toast.success('Deleted'); invalidate(); },
+    onError: () => toast.error('Failed to delete'),
+  });
+
+  const handleEdit = (txn) => { setEditTxn(txn); setShowAdd(true); };
+  const handleSubmit = (data) => {
+    if (editTxn) updateMutation.mutate({ id: editTxn.id, data });
+    else addMutation.mutate(data);
+  };
+  const handleDelete = (id) => { if (confirm('Delete this transaction?')) deleteMutation.mutate(id); };
+
+  /* ─── Import ─── */
+  const handleImportPreview = async () => {
+    if (!importFile) return;
+    try {
+      const res = await importAPI.uploadExcel(importFile, true, importAccountId);
+      setImportPreview(res.data.data);
+      toast.success(`Preview: ${res.data.data?.length} transactions`);
+    } catch { toast.error('Preview failed'); }
+  };
+  const handleImportConfirm = async () => {
+    if (!importFile) return;
+    try {
+      await importAPI.uploadExcel(importFile, false, importAccountId);
+      toast.success('Import successful!');
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      setShowImport(false); setImportFile(null); setImportPreview(null);
+    } catch { toast.error('Import failed'); }
+  };
+
+  return (
+    <div>
+      {/* ─── Header ─── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h1 style={{ fontSize: 26, fontWeight: 800, color: textMain, margin: 0 }}>Transactions</h1>
+          <p style={{ fontSize: 13, color: textSub, margin: '4px 0 0' }}>
+            Cycle: {activeCycle.startDate} → {activeCycle.endDate}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Financial Month Selector */}
+          <div style={{ position: 'relative' }}>
+            <select
+              value={selectedCycle}
+              onChange={(e) => setSelectedCycle(Number(e.target.value))}
+              className="input-field"
+              style={{ paddingRight: 32, minWidth: 160, cursor: 'pointer' }}
+            >
+              {FINANCIAL_MONTHS.map((fm, i) => (
+                <option key={fm.label} value={i}>{fm.label}{i === 0 ? ' (Current)' : ''}</option>
+              ))}
+            </select>
+          </div>
+          <button onClick={() => setShowImport(true)} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <ArrowUpTrayIcon style={{ width: 15, height: 15 }} /> Import
+          </button>
+          <button onClick={() => { setEditTxn(null); setShowAdd(true); }} className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <PlusIcon style={{ width: 15, height: 15 }} /> Add Transaction
+          </button>
+        </div>
+      </div>
+
+      {/* ─── Analytics Summary ─── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        {[
+          { label: 'Total Spent', value: fmt(analytics.totalSpent), color: '#ef4444' },
+          { label: 'Top Category', value: analytics.topCategory, color: '#f59e0b' },
+          { label: 'Daily Average', value: fmt(analytics.dailyAvg), color: '#8b5cf6' },
+          { label: 'Transactions', value: analytics.count, color: '#1abf94' },
+        ].map(card => (
+          <motion.div key={card.label} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="glass-card"
+            style={{ padding: '14px 18px' }}>
+            <p style={{ fontSize: 11, color: textSub, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>{card.label}</p>
+            <p style={{ fontSize: 22, fontWeight: 800, color: card.color, margin: '6px 0 0', letterSpacing: '-0.5px' }}>{card.value}</p>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* ─── Transactions (Daily Grouped) ─── */}
+      <div className="glass-card" style={{ padding: 24 }}>
+        {isLoading ? (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: textSub }}>Loading transactions...</div>
+        ) : grouped.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '60px 0' }}>
+            <p style={{ fontSize: 20, fontWeight: 700, color: textMain, margin: 0 }}>No transactions</p>
+            <p style={{ fontSize: 13, color: textSub, marginTop: 8 }}>in {activeCycle.label} ({activeCycle.startDate} → {activeCycle.endDate})</p>
+          </div>
+        ) : (
+          grouped.map(([date, dayTxns]) => {
+            const daySpent = dayTxns.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
+            const dayIncome = dayTxns.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+            const d = new Date(date + 'T00:00:00');
+            const dateLabel = d.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' });
+            return (
+              <div key={date} style={{ marginBottom: 24 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${borderColor}` }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: textMain }}>{dateLabel}</span>
+                  <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
+                    {dayIncome > 0 && <span style={{ color: '#1abf94', fontWeight: 600 }}>+{fmt(dayIncome)}</span>}
+                    {daySpent > 0 && <span style={{ color: '#ef4444', fontWeight: 600 }}>-{fmt(daySpent)}</span>}
+                  </div>
+                </div>
+                <TransactionTable transactions={dayTxns} onEdit={handleEdit} onDelete={handleDelete} />
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* ─── Quick Add / Edit Modal ─── */}
+      <AnimatePresence>
+        {showAdd && (
+          <QuickAddTransaction isOpen={showAdd} onClose={() => { setShowAdd(false); setEditTxn(null); }}
+            onSubmit={handleSubmit} accounts={accounts} initialData={editTxn} />
+        )}
+      </AnimatePresence>
+
+      {/* ─── Import Modal ─── */}
+      <AnimatePresence>
+        {showImport && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
+            onClick={() => setShowImport(false)}>
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              style={{ width: '90%', maxWidth: 500, background: isDark ? '#181e27' : '#fff', borderRadius: 20, padding: 28, border: `1px solid ${borderColor}` }}>
+              <h3 style={{ fontSize: 18, fontWeight: 700, color: textMain, margin: '0 0 16px' }}>Import Transactions</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: textSub, display: 'block', marginBottom: 6 }}>Excel / CSV File</label>
+                  <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => setImportFile(e.target.files[0])} className="input-field" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: textSub, display: 'block', marginBottom: 6 }}>Assign to Account (optional)</label>
+                  <select value={importAccountId} onChange={(e) => setImportAccountId(e.target.value)} className="input-field">
+                    <option value="">Select an account...</option>
+                    {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.account_name} (₹{acc.balance?.toLocaleString('en-IN')})</option>)}
+                  </select>
+                </div>
+                {importPreview && (
+                  <p style={{ fontSize: 13, color: '#1abf94', margin: 0 }}>Preview: {importPreview.length} transactions ready to import</p>
+                )}
+                <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                  <button onClick={() => { setShowImport(false); setImportPreview(null); }} className="btn-secondary" style={{ flex: 1 }}>Cancel</button>
+                  {!importPreview ? (
+                    <button onClick={handleImportPreview} className="btn-primary" style={{ flex: 1 }}>Preview</button>
+                  ) : (
+                    <button onClick={handleImportConfirm} className="btn-primary" style={{ flex: 1 }}>Import {importPreview.length} Transactions</button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

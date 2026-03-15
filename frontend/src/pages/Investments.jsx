@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
+import { useData } from '../context/DataContext';
 import ChartCard from '../components/ChartCard';
 import { investmentsAPI, mutualFundsAPI, calculationsAPI } from '../services/api';
 import { PlusIcon } from '@heroicons/react/24/outline';
@@ -22,9 +23,10 @@ export default function Investments() {
   const [sipForm, setSipForm] = useState({ fund_id: '', monthly_amount: '', start_date: new Date().toISOString().split('T')[0] });
   const [tab, setTab] = useState('investments');
 
-  const { data: investments = [], isLoading: invLoading } = useQuery({ queryKey: ['investments'], queryFn: async () => { try { const res = await investmentsAPI.getAll(); return res.data.data || []; } catch(e) { return []; } } });
-  const { data: mutualFunds = [], isLoading: mfLoading } = useQuery({ queryKey: ['mutualFunds'], queryFn: async () => { try { const res = await mutualFundsAPI.getAll(); return res.data.data || []; } catch(e) { return []; } } });
-  const { data: sips = [], isLoading: sipLoading } = useQuery({ queryKey: ['sips'], queryFn: async () => { try { const res = await mutualFundsAPI.getSIPs(); return res.data.data || []; } catch(e) { return []; } } });
+  const { investments, mutualFunds, sips } = useData();
+  const invLoading = false;
+  const mfLoading = false;
+  const sipLoading = false;
   const { data: calculations = null, isLoading: calcLoading } = useQuery({ queryKey: ['calculations'], queryFn: async () => { try { const res = await calculationsAPI.get(); return res.data.data; } catch(e) { return null; } } });
 
   const loading = invLoading || mfLoading || sipLoading || calcLoading;

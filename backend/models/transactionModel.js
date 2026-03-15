@@ -114,6 +114,36 @@ const remove = async (userId, id) => {
   return { id };
 };
 
+const removeAll = async (userId) => {
+  const collectionRef = getCollection(userId);
+  const snapshot = await collectionRef.get();
+  
+  if (snapshot.empty) return { deleted: 0 };
+
+  let batch = db.batch();
+  let count = 0;
+  let totalDeleted = 0;
+
+  for (const doc of snapshot.docs) {
+    batch.delete(doc.ref);
+    count++;
+    totalDeleted++;
+    
+    // Firestore batches allow a max of 500 operations
+    if (count === 500) {
+      await batch.commit();
+      batch = db.batch();
+      count = 0;
+    }
+  }
+
+  if (count > 0) {
+    await batch.commit();
+  }
+
+  return { deleted: totalDeleted };
+};
+
 const getByDateRange = async (userId, startDate, endDate) => {
   const snapshot = await getCollection(userId)
     .where('date', '>=', startDate)
@@ -123,4 +153,4 @@ const getByDateRange = async (userId, startDate, endDate) => {
   return snapshot.docs.map((doc) => ({ id: doc.id, ...decryptDoc(doc.data()) }));
 };
 
-module.exports = { getAll, getById, create, createBatch, update, remove, getByDateRange };
+module.exports = { getAll, getById, create, createBatch, update, remove, removeAll, getByDateRange };

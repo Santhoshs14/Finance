@@ -67,7 +67,7 @@ const getCalculations = async (req, res, next) => {
       return d >= startDate && d <= endDate;
     });
 
-    const netWorthData = calculateNetWorth(accounts, investments, creditCards, ccTransactions);
+    const netWorthData = calculateNetWorth(accounts, investments, creditCards, ccTransactions, lendingItems);
     const totalSavings = calculateTotalSavings(investments);
     const totalLiabilities = calculateTotalLiabilities(creditCards, ccTransactions, lendingItems);
     const savingsRateData = calculateSavingsRate(transactions, month, year);

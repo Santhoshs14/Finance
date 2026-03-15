@@ -34,7 +34,7 @@ const downloadCSV = (transactions) => {
 
 export default function MainLayout() {
   const { isDark } = useTheme();
-  const { user, logout } = useAuth();
+  const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -57,7 +57,7 @@ export default function MainLayout() {
   const menuBg       = isDark ? '#0f1621' : '#ffffff';
   const topbarBg     = isDark ? 'rgba(8,12,20,0.85)' : 'rgba(255,255,255,0.90)';
 
-  const displayName = user?.name || user?.username || 'User';
+  const displayName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User';
   const initials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
   // Dynamic sidebar width
@@ -149,7 +149,7 @@ export default function MainLayout() {
                   style={{ position: 'absolute', top: '110%', right: 0, minWidth: 200, background: menuBg, border: `1px solid ${topbarBorder}`, borderRadius: 14, boxShadow: '0 16px 48px rgba(0,0,0,0.3)', overflow: 'hidden', zIndex: 100 }}>
                   <div style={{ padding: '14px 16px', borderBottom: `1px solid ${topbarBorder}` }}>
                     <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: isDark ? '#f3f4f6' : '#111827' }}>{displayName}</p>
-                    <p style={{ margin: '2px 0 0', fontSize: 12, color: textMuted }}>@{user?.username || user?.email || 'user'}</p>
+                    <p style={{ margin: '2px 0 0', fontSize: 12, color: textMuted }}>{currentUser?.email}</p>
                   </div>
                   <div style={{ padding: '6px' }}>
                     {menuItems.map((item) => (

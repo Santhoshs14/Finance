@@ -1,12 +1,13 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
+import { useData } from '../context/DataContext';
 import TransactionTable from '../components/TransactionTable';
 import QuickAddTransaction from '../components/QuickAddTransaction';
 import { transactionsAPI, accountsAPI, importAPI } from '../services/api';
-import { getRecentFinancialMonths, getCurrentFinancialMonth } from '../utils/financialMonth';
-import { PlusIcon, ArrowUpTrayIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
+import { getRecentFinancialMonths } from '../utils/financialMonth';
+import { PlusIcon, ArrowUpTrayIcon, TrashIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
 const fmt = (n) => '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n || 0);
@@ -26,23 +27,13 @@ export default function Transactions() {
   const [importPreview, setImportPreview] = useState(null);
 
   const activeCycle = FINANCIAL_MONTHS[selectedCycle];
+  
+  const { transactions: allTransactions, accounts, creditCards } = useData();
+  const isLoading = false;
 
-  const { data: rawData, isLoading } = useQuery({
-    queryKey: ['transactions', activeCycle.startDate, activeCycle.endDate],
-    queryFn: async () => {
-      try {
-        const r = await transactionsAPI.getAll({ startDate: activeCycle.startDate, endDate: activeCycle.endDate });
-        return r.data.data || [];
-      } catch { return []; }
-    },
-  });
-
-  const transactions = Array.isArray(rawData) ? rawData : rawData?.transactions || [];
-
-  const { data: accounts = [] } = useQuery({
-    queryKey: ['accounts'],
-    queryFn: async () => { try { const r = await accountsAPI.getAll(); return r.data.data || []; } catch { return []; } },
-  });
+  const transactions = useMemo(() => {
+    return allTransactions.filter(t => t.date >= activeCycle.startDate && t.date <= activeCycle.endDate);
+  }, [allTransactions, activeCycle]);
 
   const textMain = isDark ? '#f3f4f6' : '#111827';
   const textSub  = isDark ? '#9ca3af' : '#6b7280';
@@ -91,12 +82,26 @@ export default function Transactions() {
     onError: () => toast.error('Failed to delete'),
   });
 
+  const deleteAllMutation = useMutation({
+    mutationFn: () => transactionsAPI.deleteAll(),
+    onSuccess: (res) => { 
+      toast.success(res.data?.message || 'All transactions cleared!'); 
+      invalidate(); 
+    },
+    onError: () => toast.error('Failed to clear transactions'),
+  });
+
   const handleEdit = (txn) => { setEditTxn(txn); setShowAdd(true); };
   const handleSubmit = (data) => {
     if (editTxn) updateMutation.mutate({ id: editTxn.id, data });
     else addMutation.mutate(data);
   };
   const handleDelete = (id) => { if (confirm('Delete this transaction?')) deleteMutation.mutate(id); };
+  const handleDeleteAll = () => { 
+    if (confirm('WARNING: Are you sure you want to permanently delete ALL your transactions? This cannot be undone.')) {
+      deleteAllMutation.mutate();
+    }
+  };
 
   /* ─── Import ─── */
   const handleImportPreview = async () => {
@@ -141,6 +146,11 @@ export default function Transactions() {
               ))}
             </select>
           </div>
+          
+          <button onClick={handleDeleteAll} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#ef4444', borderColor: '#ef4444' }}>
+            <TrashIcon style={{ width: 15, height: 15 }} /> Clear All
+          </button>
+          
           <button onClick={() => setShowImport(true)} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <ArrowUpTrayIcon style={{ width: 15, height: 15 }} /> Import
           </button>
@@ -201,7 +211,7 @@ export default function Transactions() {
       <AnimatePresence>
         {showAdd && (
           <QuickAddTransaction isOpen={showAdd} onClose={() => { setShowAdd(false); setEditTxn(null); }}
-            onSubmit={handleSubmit} accounts={accounts} initialData={editTxn} />
+            onSubmit={handleSubmit} accounts={accounts} creditCards={creditCards} initialData={editTxn} />
         )}
       </AnimatePresence>
 
@@ -215,6 +225,15 @@ export default function Transactions() {
               onClick={e => e.stopPropagation()}
               style={{ width: '90%', maxWidth: 500, background: isDark ? '#181e27' : '#fff', borderRadius: 20, padding: 28, border: `1px solid ${borderColor}` }}>
               <h3 style={{ fontSize: 18, fontWeight: 700, color: textMain, margin: '0 0 16px' }}>Import Transactions</h3>
+              <div style={{ padding: '12px', background: isDark ? '#252f3e' : '#f3f4f6', borderRadius: 8, marginBottom: 14 }}>
+                <p style={{ fontSize: 13, fontWeight: 600, color: textMain, margin: '0 0 6px' }}>Expected Columns (Case-sensitive):</p>
+                <ul style={{ fontSize: 12, color: textSub, margin: 0, paddingLeft: 18 }}>
+                  <li><strong>Date</strong>: YYYY-MM-DD format (e.g., 2024-03-15)</li>
+                  <li><strong>Amount</strong>: Number (negative for expenses)</li>
+                  <li><strong>Category</strong>: Text (e.g., Food, Transport)</li>
+                  <li><strong>Notes</strong>: Optional text for description</li>
+                </ul>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: textSub, display: 'block', marginBottom: 6 }}>Excel / CSV File</label>

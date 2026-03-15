@@ -7,8 +7,10 @@ import {
 import CountUp from 'react-countup';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
+import { getShortFinancialMonthLabelForDate } from '../utils/financialMonth';
 import TransactionTable from '../components/TransactionTable';
 import QuickAddTransaction from '../components/QuickAddTransaction';
+import { useData } from '../context/DataContext';
 import { transactionsAPI, accountsAPI, calculationsAPI, insightsAPI, goalsAPI } from '../services/api';
 import {
   ArrowUpIcon, ArrowDownIcon, PlusIcon,
@@ -136,20 +138,11 @@ export default function Dashboard() {
 
   const { data: calculations = null } = useQuery({
     queryKey: ['calculations'],
-    queryFn: async () => { try { const r = await calculationsAPI.get(); return r.data.data; } catch { return null; } },
+    queryFn: async () => { try { const r = await calculationsAPI.get(); return r.data.data || {}; } catch { return null; } },
   });
-  const { data: transactions = [], isLoading: txnLoading } = useQuery({
-    queryKey: ['transactions'],
-    queryFn: async () => { try { const r = await transactionsAPI.getAll(); return r.data.data || []; } catch { return []; } },
-  });
-  const { data: accounts = [] } = useQuery({
-    queryKey: ['accounts'],
-    queryFn: async () => { try { const r = await accountsAPI.getAll(); return r.data.data || []; } catch { return []; } },
-  });
-  const { data: goals = [] } = useQuery({
-    queryKey: ['goals'],
-    queryFn: async () => { try { const r = await goalsAPI.getAll(); return r.data.data || []; } catch { return []; } },
-  });
+  
+  const { transactions, accounts, goals, creditCards } = useData();
+  const txnLoading = false;
   const { data: snapshots = [] } = useQuery({
     queryKey: ['snapshots'],
     queryFn: async () => { try { const r = await calculationsAPI.getSnapshots(); return r.data.data || []; } catch { return []; } },
@@ -183,7 +176,7 @@ export default function Dashboard() {
   }, []).sort((a, b) => b.value - a.value);
 
   const monthlyData = transactions.reduce((acc, txn) => {
-    const key = new Date(txn.date).toLocaleString('en-US', { month: 'short' });
+    const key = getShortFinancialMonthLabelForDate(txn.date);
     const ex = acc.find(i => i.month === key);
     const amt = Math.abs(txn.amount);
     if (ex) { if (txn.amount > 0) ex.income += amt; else ex.expense += amt; }
@@ -213,37 +206,12 @@ export default function Dashboard() {
         <KpiCard label="Savings Rate" value={savingsRate} icon={ChartBarIcon} color="#f59e0b" isDark={isDark} isPercent />
       </div>
 
-      {/* ─── Row 2: Monthly Chart + Spending Heatmap ─── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 20, marginBottom: 20 }}>
-        {/* Income vs Expense */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="glass-card" style={{ padding: 24 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <span style={{ fontSize: 15, fontWeight: 600, color: textMain }}>Income vs Expense</span>
-            <div style={{ display: 'flex', gap: 14, fontSize: 12, color: textSub }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: '#1abf94', display: 'inline-block' }} /> Income</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: isDark ? '#374151' : '#d1d5db', display: 'inline-block' }} /> Expense</span>
-            </div>
-          </div>
-          {monthlyData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={monthlyData} barGap={4} barCategoryGap="25%">
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: textSub, fontSize: 12 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: textSub, fontSize: 11 }} tickFormatter={v => `₹${v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}`} width={45} />
-                <Tooltip content={<CustomTooltip isDark={isDark} />} cursor={{ fill: 'rgba(26,191,148,0.05)' }} />
-                <Bar dataKey="expense" name="Expense" fill={isDark ? '#252f3e' : '#d1d5db'} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="income" name="Income" fill="#1abf94" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : <div style={{ textAlign: 'center', padding: '48px 0', color: textSub }}>No transactions yet</div>}
-        </motion.div>
-
-        {/* Spending Heatmap */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="glass-card" style={{ padding: 24 }}>
-          <span style={{ fontSize: 15, fontWeight: 600, color: textMain, display: 'block', marginBottom: 6 }}>Spending Heatmap</span>
-          <p style={{ fontSize: 11, color: textSub, marginBottom: 16 }}>Last 35 days — daily spend intensity</p>
-          <SpendingHeatmap transactions={transactions} isDark={isDark} />
-        </motion.div>
-      </div>
+      {/* ─── Row 2: Spending Heatmap (full width) ─── */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="glass-card" style={{ padding: 24, marginBottom: 20 }}>
+        <span style={{ fontSize: 15, fontWeight: 600, color: textMain, display: 'block', marginBottom: 6 }}>Spending Heatmap</span>
+        <p style={{ fontSize: 11, color: textSub, marginBottom: 16 }}>Last 35 days — daily spend intensity</p>
+        <SpendingHeatmap transactions={transactions} isDark={isDark} />
+      </motion.div>
 
       {/* ─── Row 3: Spending by Category + Budget Progress ─── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
@@ -357,7 +325,7 @@ export default function Dashboard() {
       <AnimatePresence>
         {showQuickAdd && (
           <QuickAddTransaction isOpen={showQuickAdd} onClose={() => setShowQuickAdd(false)}
-            onSubmit={(data) => addTxnMutation.mutate(data)} accounts={accounts} />
+            onSubmit={(data) => addTxnMutation.mutate(data)} accounts={accounts} creditCards={creditCards} />
         )}
       </AnimatePresence>
     </div>

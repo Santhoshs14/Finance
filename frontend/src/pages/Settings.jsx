@@ -1,24 +1,27 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useData } from '../context/DataContext';
 import { accountsAPI, authAPI } from '../services/api';
 import { PlusIcon, TrashIcon, PencilSquareIcon, SunIcon, MoonIcon, BellIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
 export default function Settings() {
   const { isDark, toggleTheme } = useTheme();
-  const { user, login } = useAuth();
+  const { currentUser, logout } = useAuth();
   const queryClient = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
-  const [showEditProfile, setShowEditProfile] = useState(false);
-  const [profileForm, setProfileForm] = useState({ username: user?.username || '', password: '' });
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState({ account_name: '', account_type: 'bank', balance: '' });
   const [notifs, setNotifs] = useState({ email: true, push: false, monthlyReport: true });
 
-  const { data: accounts = [], isLoading: loading } = useQuery({ queryKey: ['accounts'], queryFn: async () => { try { const res = await accountsAPI.getAll(); return res.data.data || []; } catch(e) { return []; } } });
+  const displayName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User';
+  const initials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+
+  const { accounts } = useData();
+  const loading = false;
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['accounts'] });
@@ -73,21 +76,10 @@ export default function Settings() {
     }
   };
 
+  // Profile update is now managed via Firebase Auth (displayName) - password reset via Firebase
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
-    try {
-      const { data } = await authAPI.updateProfile(profileForm);
-      if (data.success) {
-        toast.success('Profile updated successfully');
-        // Update auth context with new username
-        const currentToken = localStorage.getItem('token');
-        login(currentToken, { id: user.id, username: data.data.username });
-        setShowEditProfile(false);
-        setProfileForm({ username: data.data.username, password: '' });
-      }
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to update profile');
-    }
+    toast.info('To update your profile, use Firebase console or reset password via email.');
   };
 
   return (
@@ -98,37 +90,24 @@ export default function Settings() {
       <div className="glass-card p-6 mb-6">
         <div className="flex justify-between items-center mb-4">
           <h3 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>Profile</h3>
-          <button onClick={() => setShowEditProfile(!showEditProfile)} className="btn-secondary text-sm flex items-center gap-2">
-            <PencilSquareIcon className="w-4 h-4" /> {showEditProfile ? 'Cancel' : 'Edit Profile'}
-          </button>
         </div>
 
         <AnimatePresence>
-          {showEditProfile ? (
-            <motion.form initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} onSubmit={handleProfileUpdate} className="space-y-4 mb-4 overflow-hidden">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-600'}`}>Username</label>
-                  <input value={profileForm.username} onChange={e => setProfileForm({...profileForm, username: e.target.value})} className="input-field" required />
-                </div>
-                <div>
-                  <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-600'}`}>New Password (Optional)</label>
-                  <input type="password" value={profileForm.password} onChange={e => setProfileForm({...profileForm, password: e.target.value})} className="input-field" placeholder="Leave blank to keep current" />
-                </div>
-              </div>
-              <button type="submit" className="btn-primary w-full md:w-auto">Save Changes</button>
-            </motion.form>
-          ) : (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-full gradient-primary flex items-center justify-center text-white text-xl font-bold">
-                {user?.username?.charAt(0).toUpperCase()}
-              </div>
-              <div>
-                <p className={`font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>{user?.username}</p>
-                <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Personal Account</p>
-              </div>
-            </motion.div>
-          )}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-4">
+            <div style={{
+              width: 60, height: 60, borderRadius: 18,
+              background: 'linear-gradient(135deg, #1abf94, #107f61)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'white', fontWeight: 800, fontSize: 22, flexShrink: 0,
+            }}>
+              {initials}
+            </div>
+            <div>
+              <p className={`font-bold text-lg ${isDark ? 'text-white' : 'text-dark-900'}`}>{displayName}</p>
+              <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{currentUser?.email}</p>
+              <p className={`text-xs mt-1 ${isDark ? 'text-dark-600' : 'text-dark-400'}`}>UID: {currentUser?.uid?.slice(0,12)}...</p>
+            </div>
+          </motion.div>
         </AnimatePresence>
       </div>
 

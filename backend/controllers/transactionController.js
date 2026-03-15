@@ -45,4 +45,11 @@ const remove = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, getById, create, update, remove };
+const removeAll = async (req, res, next) => {
+  try {
+    const result = await transactionService.deleteAllTransactions(req.user.id);
+    return success(res, result, `Deleted ${result.deleted} transactions successfully`);
+  } catch (err) { next(err); }
+};
+
+module.exports = { getAll, getById, create, update, remove, removeAll };

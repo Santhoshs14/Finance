@@ -70,6 +70,7 @@ const recordNetWorthSnapshots = async () => {
     const accountModel = require('../models/accountModel');
     const investmentModel = require('../models/investmentModel');
     const creditCardModel = require('../models/creditCardModel');
+    const lendingModel = require('../models/lendingModel');
     const { calculateNetWorth } = require('../utils/calculations');
 
     // Get all unique users who have accounts or data
@@ -78,14 +79,15 @@ const recordNetWorthSnapshots = async () => {
 
     for (const userDoc of usersSnapshot.docs) {
       const userId = userDoc.id;
-      const [accounts, investments, creditCards, ccTransactions] = await Promise.all([
+      const [accounts, investments, creditCards, ccTransactions, lendingItems] = await Promise.all([
         accountModel.getAll(userId),
         investmentModel.getAll(userId),
         creditCardModel.getAllCards(userId),
         creditCardModel.getAllTransactions(userId),
+        lendingModel.getAll(userId),
       ]);
 
-      const netWorthData = calculateNetWorth(accounts, investments, creditCards, ccTransactions);
+      const netWorthData = calculateNetWorth(accounts, investments, creditCards, ccTransactions, lendingItems);
 
       await db.collection('users').doc(userId).collection('net_worth_snapshots').add({
         date: today.toISOString().split('T')[0],

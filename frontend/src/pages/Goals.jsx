@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
+import { useData } from '../context/DataContext';
 import GoalCard from '../components/GoalCard';
 import { goalsAPI } from '../services/api';
 import { PlusIcon } from '@heroicons/react/24/outline';
@@ -13,7 +14,8 @@ export default function Goals() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ goal_name: '', target_amount: '', current_amount: '', deadline: '' });
 
-  const { data: goals = [], isLoading: loading } = useQuery({ queryKey: ['goals'], queryFn: async () => { try { const res = await goalsAPI.getAll(); return res.data.data || []; } catch(e) { return []; } } });
+  const { goals } = useData();
+  const loading = false;
 
   const addMutation = useMutation({
     mutationFn: (data) => goalsAPI.create(data),

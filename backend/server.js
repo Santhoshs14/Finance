@@ -27,19 +27,20 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.use(apiLimiter);
+app.use('/auth', apiLimiter);
 
 // =========================
 // Input Sanitization
 // =========================
 const sanitizeInput = (req, res, next) => {
-  const sanitize = (obj) => {
+  const sanitize = (obj, depth = 0) => {
+    if (depth > 10) return obj; // Prevent stack overflow from deep objects
     if (!obj || typeof obj !== 'object') return obj;
     for (const key of Object.keys(obj)) {
       if (typeof obj[key] === 'string') {
         obj[key] = obj[key].replace(/<[^>]*>/g, ''); // Strip HTML tags
       } else if (typeof obj[key] === 'object') {
-        sanitize(obj[key]);
+        sanitize(obj[key], depth + 1);
       }
     }
     return obj;

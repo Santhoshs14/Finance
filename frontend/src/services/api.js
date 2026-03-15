@@ -1,128 +1,147 @@
-import axios from 'axios';
+import { db, auth } from '../config/firebase';
+import { collection, doc, addDoc, updateDoc, deleteDoc, getDocs, writeBatch } from 'firebase/firestore';
+import * as XLSX from 'xlsx';
 
-const API_BASE = '/api';
+const getUserRef = (col) => {
+  if (!auth.currentUser) throw new Error("Not authenticated");
+  return collection(db, `users/${auth.currentUser.uid}/${col}`);
+};
 
-const api = axios.create({
-  baseURL: API_BASE,
-  headers: { 'Content-Type': 'application/json' },
-});
-
-// Attach JWT token to every request
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
-
-// Handle 401 errors globally
-api.interceptors.response.use(
-  (res) => res,
-  (err) => {
-    if (err.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
-    }
-    return Promise.reject(err);
-  }
-);
+const getDocRef = (col, id) => {
+  if (!auth.currentUser) throw new Error("Not authenticated");
+  return doc(db, `users/${auth.currentUser.uid}/${col}`, id);
+};
 
 // Auth
 export const authAPI = {
-  login: (data) => api.post('/auth/login', data),
-  register: (data) => api.post('/auth/register', data),
-  updateProfile: (data) => api.put('/auth/profile', data),
-  getStats: () => api.get('/auth/profile/stats'),
+  login: () => { throw new Error('Use AuthContext'); },
+  register: () => { throw new Error('Use AuthContext'); },
+  updateProfile: () => Promise.resolve({ data: { success: true } }),
+  getStats: () => Promise.resolve({ data: {} }),
 };
 
 // Accounts
 export const accountsAPI = {
-  getAll: () => api.get('/accounts'),
-  create: (data) => api.post('/accounts', data),
-  update: (id, data) => api.put(`/accounts/${id}`, data),
-  delete: (id) => api.delete(`/accounts/${id}`),
+  create: async (data) => await addDoc(getUserRef('accounts'), data),
+  update: async (id, data) => await updateDoc(getDocRef('accounts', id), data),
+  delete: async (id) => await deleteDoc(getDocRef('accounts', id)),
 };
 
-// Transactions
 export const transactionsAPI = {
-  getAll: (params) => api.get('/transactions', { params }),
-  create: (data) => api.post('/transactions', data),
-  update: (id, data) => api.put(`/transactions/${id}`, data),
-  delete: (id) => api.delete(`/transactions/${id}`),
-  exportCSV: (params) => api.get('/transactions', { params: { ...params, limit: 9999 } }),
+  create: async (data) => await addDoc(getUserRef('transactions'), data),
+  update: async (id, data) => await updateDoc(getDocRef('transactions', id), data),
+  delete: async (id) => await deleteDoc(getDocRef('transactions', id)),
+  deleteAll: async () => {
+    const snap = await getDocs(getUserRef('transactions'));
+    const batch = writeBatch(db);
+    snap.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+    return { data: { message: 'All transactions cleared!' } };
+  },
 };
 
 // Budgets
 export const budgetsAPI = {
-  getAll: () => api.get('/budgets'),
-  create: (data) => api.post('/budgets', data),
+  create: async (data) => await addDoc(getUserRef('budgets'), data),
+  update: async (id, data) => await updateDoc(getDocRef('budgets', id), data),
+  delete: async (id) => await deleteDoc(getDocRef('budgets', id)),
 };
 
 // Credit Cards
 export const creditCardsAPI = {
-  getAll: () => api.get('/credit-cards'),
-  create: (data) => api.post('/credit-cards', data),
-  getTransactions: (params) => api.get('/credit-cards/transactions', { params }),
-  createTransaction: (data) => api.post('/credit-cards/transactions', data),
+  create: async (data) => await addDoc(getUserRef('creditCards'), data),
+  update: async (id, data) => await updateDoc(getDocRef('creditCards', id), data),
+  delete: async (id) => await deleteDoc(getDocRef('creditCards', id)),
+  createTransaction: async (data) => await addDoc(getUserRef('transactions'), data),
 };
 
 // Investments
 export const investmentsAPI = {
-  getAll: () => api.get('/investments'),
-  create: (data) => api.post('/investments', data),
-  sync: () => api.post('/investments/sync'),
+  create: async (data) => await addDoc(getUserRef('investments'), data),
+  update: async (id, data) => await updateDoc(getDocRef('investments', id), data),
+  delete: async (id) => await deleteDoc(getDocRef('investments', id)),
 };
 
 // Mutual Funds
 export const mutualFundsAPI = {
-  getAll: () => api.get('/mutual-funds'),
-  create: (data) => api.post('/mutual-funds', data),
-  getSIPs: () => api.get('/mutual-funds/sip'),
-  createSIP: (data) => api.post('/mutual-funds/sip', data),
+  create: async (data) => await addDoc(getUserRef('mutualFunds'), data),
 };
 
 // Goals
 export const goalsAPI = {
-  getAll: () => api.get('/goals'),
-  create: (data) => api.post('/goals', data),
+  create: async (data) => await addDoc(getUserRef('goals'), data),
+  update: async (id, data) => await updateDoc(getDocRef('goals', id), data),
+  delete: async (id) => await deleteDoc(getDocRef('goals', id)),
 };
 
 // Lending
 export const lendingAPI = {
-  getAll: () => api.get('/lending'),
-  create: (data) => api.post('/lending', data),
-  repay: (id, amount) => api.post(`/lending/${id}/repay`, { amount }),
+  create: async (data) => await addDoc(getUserRef('lending'), data),
+  update: async (id, data) => await updateDoc(getDocRef('lending', id), data),
+  delete: async (id) => await deleteDoc(getDocRef('lending', id)),
 };
 
-// Reports
 export const reportsAPI = {
-  getMonthly: (params) => api.get('/reports/monthly', { params }),
-  getYearly: (params) => api.get('/reports/yearly', { params }),
-  getMonthlyPDF: (params) => api.get('/reports/monthly', { params: { ...params, format: 'pdf' }, responseType: 'blob' }),
-  getYearlyPDF: (params) => api.get('/reports/yearly', { params: { ...params, format: 'pdf' }, responseType: 'blob' }),
+  getMonthly: () => Promise.resolve({ data: { data: [] } }),
+  getYearly: () => Promise.resolve({ data: { data: [] } }),
 };
-
-// Import
 export const importAPI = {
-  uploadExcel: (file, preview = false, account_id = null) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (account_id) formData.append('account_id', account_id);
-    return api.post(`/import/excel${preview ? '?preview=true' : ''}`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+  uploadExcel: async (file, isPreview, accountId) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const data = e.target.result;
+          const workbook = XLSX.read(data, { type: 'binary' });
+          const firstSheet = workbook.SheetNames[0];
+          const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { raw: false });
+
+          const transactions = rows.map(row => {
+            const dateStr = row.Date || row.date || new Date().toISOString().split('T')[0];
+            const amount = parseFloat(row.Amount || row.amount || 0);
+            const category = row.Category || row.category || 'Other';
+            const notes = row.Notes || row.notes || '';
+            const type = row.Type || row.type || (amount >= 0 ? 'income' : 'expense');
+
+            return {
+              date: dateStr,
+              amount: amount,
+              category,
+              notes,
+              type,
+              account_id: accountId || null,
+              created_at: new Date().toISOString()
+            };
+          }).filter(t => !isNaN(t.amount) && t.amount !== 0);
+
+          if (isPreview) {
+            resolve({ data: { data: transactions } });
+          } else {
+            const batch = writeBatch(db);
+            const userRef = collection(db, `users/${auth.currentUser.uid}/transactions`);
+            transactions.forEach(txn => {
+              const newRef = doc(userRef);
+              batch.set(newRef, txn);
+            });
+            await batch.commit();
+            resolve({ data: { data: transactions } });
+          }
+        } catch (error) {
+          reject(error);
+        }
+      };
+      reader.onerror = (error) => reject(error);
+      reader.readAsBinaryString(file);
     });
-  },
+  }
 };
-
-// Insights
 export const insightsAPI = {
-  get: () => api.get('/insights'),
+  get: () => Promise.resolve({ data: { data: [] } }),
 };
-
-// Calculations
 export const calculationsAPI = {
-  get: (params) => api.get('/calculations', { params }),
-  getSnapshots: () => api.get('/calculations/snapshots'),
+  get: () => Promise.resolve({ data: { data: {} } }),
+  getSnapshots: () => Promise.resolve({ data: { data: [] } }),
 };
 
-export default api;
+export default {};
+

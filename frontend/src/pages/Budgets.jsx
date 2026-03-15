@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
+import { useData } from '../context/DataContext';
 import { budgetsAPI, transactionsAPI } from '../services/api';
 import { getCurrentFinancialMonth } from '../utils/financialMonth';
 import {
@@ -200,27 +201,14 @@ export default function Budgets() {
     localStorage.setItem(SALARY_KEY, String(val));
   };
 
-  const { data: budgets = [], isLoading: budgetsLoading } = useQuery({
-    queryKey: ['budgets'],
-    queryFn: async () => {
-      const res = await budgetsAPI.getAll();
-      return res.data.data || [];
-    },
-    staleTime: 0,
-    refetchOnMount: 'always',
-  });
+  const { budgets, transactions: allTransactions } = useData();
+  const budgetsLoading = false;
 
   // Fetch cycle transactions directly (not from heavy calculations endpoint)
-  const { data: cycleTransactions = [], isLoading: txnLoading } = useQuery({
-    queryKey: ['transactions-cycle', cycle.startDate, cycle.endDate],
-    queryFn: async () => {
-      const res = await transactionsAPI.getAll({ startDate: cycle.startDate, endDate: cycle.endDate });
-      const data = res.data.data;
-      return Array.isArray(data) ? data : data?.transactions || [];
-    },
-    staleTime: 30000,
-    refetchOnMount: 'always',
-  });
+  const cycleTransactions = useMemo(() => {
+    return allTransactions.filter(t => t.date >= cycle.startDate && t.date <= cycle.endDate);
+  }, [allTransactions, cycle]);
+  const txnLoading = false;
 
   const saveMutation = useMutation({
     mutationFn: ({ category, limit }) => budgetsAPI.create({ category, monthly_limit: limit }),

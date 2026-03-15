@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
+import { useData } from '../context/DataContext';
 import ChartCard from '../components/ChartCard';
 import { creditCardsAPI, calculationsAPI } from '../services/api';
 import { PlusIcon } from '@heroicons/react/24/outline';
@@ -18,11 +19,14 @@ export default function CreditCards() {
   const [cardForm, setCardForm] = useState({ card_name: '', credit_limit: '', billing_cycle: '', due_date: '', reward_points: '' });
   const [txnForm, setTxnForm] = useState({ credit_card_id: '', amount: '', category: '', date: new Date().toISOString().split('T')[0], notes: '' });
 
-  const { data: cards = [], isLoading: cardsLoading } = useQuery({ queryKey: ['creditCards'], queryFn: async () => { try { const res = await creditCardsAPI.getAll(); return res.data.data || []; } catch(e) { return []; } } });
-  const { data: ccTxns = [], isLoading: txnsLoading } = useQuery({ queryKey: ['creditCardTxns'], queryFn: async () => { try { const res = await creditCardsAPI.getTransactions(); return res.data.data || []; } catch(e) { return []; } } });
+  const { creditCards: cards, transactions: allTxns } = useData();
+  const cardsLoading = false;
+  const ccTxns = useMemo(() => allTxns.filter(t => t.credit_card_id), [allTxns]);
+  const txnsLoading = false;
+  
   const { data: ccUtil = [], isLoading: calcLoading } = useQuery({ queryKey: ['calculations'], queryFn: async () => { try { const res = await calculationsAPI.get(); return res.data.data?.cc_utilization || []; } catch(e) { return []; } } });
   
-  const loading = cardsLoading || txnsLoading || calcLoading;
+  const loading = false;
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['creditCards'] });

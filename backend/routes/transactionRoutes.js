@@ -11,6 +11,7 @@ router.get('/', transactionController.getAll);
 router.get('/:id', transactionController.getById);
 router.post('/', validate(transactionValidator), transactionController.create);
 router.put('/:id', validate(transactionUpdateValidator), transactionController.update);
+router.delete('/', transactionController.removeAll);
 router.delete('/:id', transactionController.remove);
 
 module.exports = router;

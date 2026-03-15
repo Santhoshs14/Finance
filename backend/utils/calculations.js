@@ -5,20 +5,31 @@
  */
 
 /**
- * Calculate net worth = sum of all account balances + investment value - credit card outstanding
+ * Calculate net worth = sum of all account balances + investment value - credit card outstanding + lent - borrowed
  */
-const calculateNetWorth = (accounts, investments, creditCards, creditCardTransactions) => {
+const calculateNetWorth = (accounts, investments, creditCards, creditCardTransactions, lendingItems = []) => {
   const totalAccountBalance = accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0);
   const totalInvestmentValue = investments.reduce((sum, inv) => sum + (inv.current_price * inv.quantity), 0);
 
   // Calculate outstanding per credit card
   const ccOutstanding = creditCardTransactions.reduce((sum, txn) => sum + (txn.amount || 0), 0);
 
+  // Calculate lending impact
+  const lentAmount = lendingItems
+    .filter(l => l.type === 'lent' && l.status !== 'paid')
+    .reduce((sum, l) => sum + ((l.amount || 0) - (l.paid_amount || 0)), 0);
+
+  const borrowedAmount = lendingItems
+    .filter(l => l.type === 'borrowed' && l.status !== 'paid')
+    .reduce((sum, l) => sum + ((l.amount || 0) - (l.paid_amount || 0)), 0);
+
   return {
     total_accounts: totalAccountBalance,
     total_investments: totalInvestmentValue,
     total_cc_outstanding: ccOutstanding,
-    net_worth: totalAccountBalance + totalInvestmentValue - ccOutstanding,
+    total_lent: lentAmount,
+    total_borrowed: borrowedAmount,
+    net_worth: totalAccountBalance + totalInvestmentValue + lentAmount - ccOutstanding - borrowedAmount,
   };
 };
 
@@ -229,6 +240,10 @@ const calculateFinancialHealthScore = (savingsRateData, netWorthData, ccData, po
 const calculateXIRR = (cashflows) => {
   // cashflows: [{ amount, date }] where negative = investment, positive = redemption
   if (!cashflows || cashflows.length < 2) return 0;
+  
+  const hasPositive = cashflows.some(cf => cf.amount > 0);
+  const hasNegative = cashflows.some(cf => cf.amount < 0);
+  if (!hasPositive || !hasNegative) return 0;
 
   const daysInYear = 365.0;
 

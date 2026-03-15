@@ -4,20 +4,25 @@ import { useTheme } from '../context/ThemeContext';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 
 const CATEGORIES = ['Investment','Rent','Home','Food','Travel','Petrol','Entertainment','Shopping','Bills','Utilities','Subscription','Lending','Gifts','Income','Other'];
-const PAYMENT_TYPES = ['Cash', 'Credit Card', 'Debit Card', 'UPI'];
+
+const getLocalISODate = () => {
+  const tzOffset = (new Date()).getTimezoneOffset() * 60000;
+  return new Date(Date.now() - tzOffset).toISOString().split('T')[0];
+};
 
 const defaultForm = {
-  date: new Date().toISOString().split('T')[0],
+  date: getLocalISODate(),
   amount: '',
   category: 'Food',
   payment_type: 'Cash',
   account_id: '',
+  credit_card_id: '',
   notes: '',
   is_recurring: false,
   recurrence_interval: 'monthly',
 };
 
-export default function QuickAddTransaction({ isOpen, onClose, onSubmit, accounts = [], initialData = null }) {
+export default function QuickAddTransaction({ isOpen, onClose, onSubmit, accounts = [], creditCards = [], initialData = null }) {
   const { isDark } = useTheme();
   const [form, setForm] = useState(defaultForm);
 
@@ -30,6 +35,7 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
         category: initialData.category || 'Food',
         payment_type: initialData.payment_type || 'Cash',
         account_id: initialData.account_id || '',
+        credit_card_id: initialData.credit_card_id || '',
         notes: initialData.notes || '',
         is_recurring: initialData.is_recurring || false,
         recurrence_interval: initialData.recurrence_interval || 'monthly',
@@ -39,9 +45,29 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
     }
   }, [initialData, isOpen]);
 
+  // When payment type changes, reset associated selection
+  const handlePaymentTypeChange = (newType) => {
+    setForm(prev => ({
+      ...prev,
+      payment_type: newType,
+      account_id: newType === 'Credit Card' ? '' : prev.account_id,
+      credit_card_id: newType !== 'Credit Card' ? '' : prev.credit_card_id,
+    }));
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    let submitData = { ...form, amount: parseFloat(form.amount) };
+    const rawAmount = parseFloat(form.amount);
+    // Income category → positive, everything else → negative
+    const signedAmount = form.category === 'Income' ? Math.abs(rawAmount) : -Math.abs(rawAmount);
+    let submitData = { ...form, amount: signedAmount };
+
+    // Clean up unneeded field
+    if (form.payment_type === 'Credit Card') {
+      submitData.account_id = null;
+    } else {
+      submitData.credit_card_id = null;
+    }
     
     if (submitData.is_recurring) {
       const d = new Date(submitData.date);
@@ -62,6 +88,15 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
   if (!isOpen) return null;
 
   const isEdit = !!initialData;
+  const paymentType = form.payment_type;
+  const showCreditCardSelector = paymentType === 'Credit Card' && creditCards.length > 0;
+  const showAccountSelector = (paymentType === 'Debit Card' || paymentType === 'UPI') && accounts.length > 0;
+
+  const label = (text) => (
+    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4, color: isDark ? '#9ca3af' : '#6b7280' }}>{text}</label>
+  );
+
+  const inputStyle = { width: '100%' };
 
   return (
     <motion.div
@@ -90,43 +125,82 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Date</label>
-              <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="input-field" required />
+              {label('Date')}
+              <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="input-field" style={inputStyle} required />
             </div>
             <div>
-              <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Amount (₹)</label>
-              <input type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="input-field" placeholder="0.00" required />
+              {label('Amount (₹)')}
+              <input type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="input-field" style={inputStyle} placeholder="0.00" required />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Category</label>
-              <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="input-field">
+              {label('Category')}
+              <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="input-field" style={inputStyle}>
                 {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div>
-              <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Payment Method</label>
-              <select value={form.payment_type} onChange={(e) => setForm({ ...form, payment_type: e.target.value })} className="input-field">
-                {PAYMENT_TYPES.map((p) => <option key={p} value={p}>{p}</option>)}
+              {label('Payment Method')}
+              <select value={form.payment_type} onChange={(e) => handlePaymentTypeChange(e.target.value)} className="input-field" style={inputStyle}>
+                <option value="Cash">💵 Cash</option>
+                <option value="Credit Card">💳 Credit Card</option>
+                <option value="Debit Card">🏦 Debit Card</option>
+                <option value="UPI">📱 UPI</option>
               </select>
             </div>
           </div>
 
-          {accounts.length > 0 && (
+          {/* Contextual account/card selector */}
+          {showCreditCardSelector && (
             <div>
-              <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Account</label>
-              <select value={form.account_id} onChange={(e) => setForm({ ...form, account_id: e.target.value })} className="input-field">
-                <option value="">Select Account</option>
-                {accounts.map((a) => <option key={a.id} value={a.id}>{a.account_name}</option>)}
+              {label('Credit Card')}
+              <select
+                value={form.credit_card_id}
+                onChange={(e) => setForm({ ...form, credit_card_id: e.target.value })}
+                className="input-field"
+                style={inputStyle}
+                required
+              >
+                <option value="">— Select credit card —</option>
+                {creditCards.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.card_name} (Limit: ₹{parseFloat(c.credit_limit || 0).toLocaleString('en-IN')})
+                  </option>
+                ))}
               </select>
             </div>
           )}
 
+          {showAccountSelector && (
+            <div>
+              {label(paymentType === 'UPI' ? 'UPI Linked Account' : 'Bank Account')}
+              <select
+                value={form.account_id}
+                onChange={(e) => setForm({ ...form, account_id: e.target.value })}
+                className="input-field"
+                style={inputStyle}
+              >
+                <option value="">— Select account —</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.account_name} (₹{parseFloat(a.balance || 0).toLocaleString('en-IN')})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {paymentType === 'Credit Card' && creditCards.length === 0 && (
+            <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', fontSize: 12, color: '#f59e0b' }}>
+              No credit cards added yet. Add cards in the Credit Cards page first.
+            </div>
+          )}
+
           <div>
-            <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Notes</label>
-            <input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="input-field" placeholder="Description..." />
+            {label('Notes')}
+            <input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="input-field" style={inputStyle} placeholder="Description..." />
           </div>
 
           {!isEdit && (

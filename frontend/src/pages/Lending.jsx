@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
+import { useData } from '../context/DataContext';
 import { lendingAPI } from '../services/api';
 import { PlusIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
@@ -14,7 +15,8 @@ export default function Lending() {
 
   const [repayForm, setRepayForm] = useState({ id: null, amount: '' });
 
-  const { data: records = [], isLoading: loading } = useQuery({ queryKey: ['lending'], queryFn: async () => { try { const res = await lendingAPI.getAll(); return res.data.data || []; } catch(e) { return []; } } });
+  const { lending: records } = useData();
+  const loading = false;
 
   const addMutation = useMutation({
     mutationFn: (data) => lendingAPI.create(data),

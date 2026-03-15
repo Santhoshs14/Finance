@@ -64,3 +64,23 @@ export const formatShortDate = (dateStr) => {
   const d = new Date(dateStr + 'T00:00:00');
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 };
+
+/**
+ * Gets the financial month label (e.g., 'Mar') for a specific date string ('YYYY-MM-DD').
+ * Respects the 25th-to-24th cycle logic.
+ */
+export const getShortFinancialMonthLabelForDate = (dateStr) => {
+  if (!dateStr) return '';
+  const [yearStr, monthStr, dayStr] = dateStr.split('-');
+  if (!yearStr || !monthStr || !dayStr) return '';
+  
+  const day = parseInt(dayStr, 10);
+  let month = parseInt(monthStr, 10);
+
+  if (day >= 25) {
+    month = month === 12 ? 1 : month + 1;
+  }
+  
+  // Return the first three letters of the month name
+  return MONTH_NAMES[month].substring(0, 3);
+};

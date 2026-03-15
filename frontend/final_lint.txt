@@ -1,0 +1,62 @@
+
+D:\FSD\Finance\frontend\src\components\GoalCard.jsx
+  20:9  error  'bg' is assigned a value but never used  no-unused-vars
+
+D:\FSD\Finance\frontend\src\context\AuthContext.jsx
+  48:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+D:\FSD\Finance\frontend\src\context\ThemeContext.jsx
+  25:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+D:\FSD\Finance\frontend\src\layouts\Sidebar.jsx
+   8:3  error  'BanknotesIcon' is defined but never used         no-unused-vars
+  13:3  error  'DocumentChartBarIcon' is defined but never used  no-unused-vars
+
+D:\FSD\Finance\frontend\src\pages\Budgets.jsx
+    2:18  error  'AnimatePresence' is defined but never used                      no-unused-vars
+    9:18  error  'ArrowTrendingDownIcon' is defined but never used                no-unused-vars
+   40:9   error  'borderC' is assigned a value but never used                     no-unused-vars
+   99:9   error  'bgStatus' is assigned a value but never used                    no-unused-vars
+  179:80  error  `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+  179:90  error  `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+  317:68  error  `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+  317:78  error  `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+
+D:\FSD\Finance\frontend\src\pages\CreditCards.jsx
+  21:203  error  'e' is defined but never used  no-unused-vars
+  22:215  error  'e' is defined but never used  no-unused-vars
+  23:218  error  'e' is defined but never used  no-unused-vars
+
+D:\FSD\Finance\frontend\src\pages\Dashboard.jsx
+   14:3  error  'ArrowUpIcon' is defined but never used           no-unused-vars
+  118:7  error  'StatusBadge' is assigned a value but never used  no-unused-vars
+  171:9  error  'income' is assigned a value but never used       no-unused-vars
+  172:9  error  'expenses' is assigned a value but never used     no-unused-vars
+  196:9  error  'cardBorder' is assigned a value but never used   no-unused-vars
+
+D:\FSD\Finance\frontend\src\pages\Goals.jsx
+  16:186  error  'e' is defined but never used  no-unused-vars
+
+D:\FSD\Finance\frontend\src\pages\Investments.jsx
+   1:20   error  'useEffect' is defined but never used  no-unused-vars
+  25:207  error  'e' is defined but never used          no-unused-vars
+  26:206  error  'e' is defined but never used          no-unused-vars
+  27:194  error  'e' is defined but never used          no-unused-vars
+  28:204  error  'e' is defined but never used          no-unused-vars
+
+D:\FSD\Finance\frontend\src\pages\Lending.jsx
+  17:192  error  'e' is defined but never used  no-unused-vars
+
+D:\FSD\Finance\frontend\src\pages\Login.jsx
+  176:14  error  `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`  react/no-unescaped-entities
+
+D:\FSD\Finance\frontend\src\pages\Reports.jsx
+  25:14  error  'e' is defined but never used  no-unused-vars
+  39:14  error  'e' is defined but never used  no-unused-vars
+
+D:\FSD\Finance\frontend\src\pages\Settings.jsx
+  21:43   error  'loading' is assigned a value but never used  no-unused-vars
+  21:195  error  'e' is defined but never used                 no-unused-vars
+
+✖ 33 problems (31 errors, 2 warnings)
+

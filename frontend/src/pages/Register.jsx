@@ -7,13 +7,13 @@ import { useTheme } from '../context/ThemeContext';
 import { CurrencyRupeeIcon, EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 
 export default function Register() {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { registerWithEmail } = useAuth();
   const { isDark } = useTheme();
   const navigate = useNavigate();
 
@@ -28,13 +28,10 @@ export default function Register() {
     
     setLoading(true);
     try {
-      const { data } = await authAPI.register({ username, password });
-      if (data.success) {
-        login(data.data.token, data.data.user);
-        navigate('/');
-      }
+      await registerWithEmail(email, password);
+      navigate('/');
     } catch (err) {
-      setError(err.response?.data?.message || 'Registration failed');
+      setError(err.message || 'Registration failed');
     } finally {
       setLoading(false);
     }
@@ -89,13 +86,13 @@ export default function Register() {
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Username</label>
+            <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Email</label>
             <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="input-field"
-              placeholder="Enter username"
+              placeholder="Enter email"
               required
               autoFocus
             />

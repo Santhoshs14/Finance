@@ -56,6 +56,10 @@ const deleteTransaction = async (userId, id) => {
   return result;
 };
 
+const deleteAllTransactions = async (userId) => {
+  return await transactionModel.removeAll(userId);
+};
+
 const getTransactionsByDateRange = async (userId, startDate, endDate) => {
   return await transactionModel.getByDateRange(userId, startDate, endDate);
 };
@@ -63,5 +67,5 @@ const getTransactionsByDateRange = async (userId, startDate, endDate) => {
 module.exports = {
   getAllTransactions, getTransactionById, createTransaction,
   createBatchTransactions, updateTransaction, deleteTransaction,
-  getTransactionsByDateRange,
+  deleteAllTransactions, getTransactionsByDateRange,
 };

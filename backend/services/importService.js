@@ -3,6 +3,38 @@ const { CATEGORIES } = require('../validators/transactionValidator');
 const transactionModel = require('../models/transactionModel');
 
 /**
+ * Robustly parses various Excel date formats (Strings, native Dates, Serial Numbers)
+ */
+const parseExcelDate = (val) => {
+  if (!val) return new Date().toISOString().split('T')[0];
+  
+  // 1. If it's already a JS Date
+  if (val instanceof Date) {
+    return val.toISOString().split('T')[0];
+  }
+
+  // 2. If it's an Excel Serial Number (e.g., 44927 for Jan 1, 2023)
+  if (typeof val === 'number') {
+    // Excel epochs: 25569 days between Dec 30, 1899 (Excel epoch) and Jan 1, 1970 (UNIX epoch)
+    const excelEpoch = new Date(1899, 11, 30);
+    const resultDate = new Date(excelEpoch.getTime() + val * 86400000);
+    return resultDate.toISOString().split('T')[0];
+  }
+
+  // 3. Fallback for Strings (e.g., "12/05/2026", "2026-05-12")
+  try {
+    const d = new Date(String(val));
+    if (!isNaN(d.getTime())) {
+      return d.toISOString().split('T')[0];
+    }
+  } catch (e) {
+    console.warn('Failed to parse date:', val);
+  }
+
+  return new Date().toISOString().split('T')[0]; // Safe fallback to today
+};
+
+/**
  * Parse Excel file and return structured data
  */
 const parseExcel = (buffer) => {
@@ -21,9 +53,15 @@ const parseExcel = (buffer) => {
     // Auto-categorize if category is not in our list
     const normalizedCategory = CATEGORIES.includes(category) ? category : autoCategorize(notes, category);
 
+    // Enforce Negative for Expenses, Positive for Income
+    let finalAmount = Math.abs(amount); // start with absolute value
+    if (normalizedCategory !== 'Income') {
+      finalAmount = -finalAmount;
+    }
+
     return {
-      date: date instanceof Date ? date.toISOString().split('T')[0] : String(date),
-      amount,
+      date: parseExcelDate(date),
+      amount: finalAmount,
       payment_type: paymentType,
       category: normalizedCategory,
       notes,

@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { DataProvider } from './context/DataContext';
 import MainLayout from './layouts/MainLayout';
 
 const Login = lazy(() => import('./pages/Login'));
@@ -57,15 +58,17 @@ export default function App() {
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-          <AppRoutes />
-          <Toaster
-            position="top-right"
-            toastOptions={{
-              style: { borderRadius: '12px', padding: '12px 20px', fontSize: '14px' },
-              success: { style: { background: '#10b981', color: '#fff' } },
-              error: { style: { background: '#ef4444', color: '#fff' } },
-            }}
-          />
+          <DataProvider>
+            <AppRoutes />
+            <Toaster
+              position="top-right"
+              toastOptions={{
+                style: { borderRadius: '12px', padding: '12px 20px', fontSize: '14px' },
+                success: { style: { background: '#10b981', color: '#fff' } },
+                error: { style: { background: '#ef4444', color: '#fff' } },
+              }}
+            />
+          </DataProvider>
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>

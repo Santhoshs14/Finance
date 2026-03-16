@@ -6,6 +6,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { DataProvider } from './context/DataContext';
 import MainLayout from './layouts/MainLayout';
 import { SpeedInsights } from '@vercel/speed-insights/react';
+import { Analytics } from '@vercel/analytics/react';
 
 const Login = lazy(() => import('./pages/Login'));
 const Register = lazy(() => import('./pages/Register'));
@@ -50,7 +51,6 @@ function AppRoutes() {
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
-      <SpeedInsights />
     </Suspense>
   );
 }
@@ -73,6 +73,8 @@ export default function App() {
           </DataProvider>
         </AuthProvider>
       </ThemeProvider>
+      <SpeedInsights />
+      <Analytics />
     </BrowserRouter>
   );
 }

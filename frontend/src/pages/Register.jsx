@@ -61,10 +61,13 @@ export default function Register() {
             transition={{ type: 'spring', stiffness: 200, delay: 0.2 }}
             className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center shadow-xl shadow-primary-600/30 mb-4"
           >
-            <CurrencyRupeeIcon className="w-8 h-8 text-white" />
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+              <path d="M3 14l5-5 4 4 9-9" stroke="white" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M15 4h6v6" stroke="white" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
           </motion.div>
           <h1 className="text-2xl font-bold bg-gradient-to-r from-primary-500 to-primary-700 bg-clip-text text-transparent">
-            Join FinanceOS
+            Join WealthFlow
           </h1>
           <p className={`text-sm mt-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Create your personal finance account</p>
         </div>

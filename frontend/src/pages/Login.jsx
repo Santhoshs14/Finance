@@ -77,20 +77,14 @@ export default function Login() {
             }}
           >
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-              <path d="M4 4L12 20L20 4" stroke="white" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"/>
-              <circle cx="12" cy="7" r="2" fill="white" opacity="0.6"/>
+              <path d="M3 14l5-5 4 4 9-9" stroke="white" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M15 4h6v6" stroke="white" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </motion.div>
 
           <h1 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', margin: 0 }}>
-            <span style={{ color: isDark ? '#e5e7eb' : '#111827' }}>Vault</span>
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              width: 20, height: 20, borderRadius: '50%',
-              background: 'linear-gradient(135deg, #1abf94, #107f61)',
-              color: 'white', fontSize: 11, fontWeight: 800, margin: '0 2px',
-              verticalAlign: 'middle',
-            }}>a</span>
+            <span style={{ color: isDark ? '#e5e7eb' : '#111827' }}>Wealth</span>
+            <span style={{ color: '#1abf94' }}>Flow</span>
           </h1>
           <p style={{ fontSize: 13, marginTop: 6, color: isDark ? '#6b7280' : '#9ca3af', margin: '6px 0 0' }}>
             Your Personal Finance Dashboard

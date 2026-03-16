@@ -70,7 +70,7 @@ app.use('/calculations', require('./routes/calculationsRoutes'));
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ success: true, message: 'Finance Dashboard API is running', timestamp: new Date().toISOString() });
+  res.json({ success: true, message: 'WealthFlow API is running', timestamp: new Date().toISOString() });
 });
 
 // 404 handler
@@ -92,7 +92,7 @@ startCronJobs();
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`\n🚀 Finance Dashboard API running on port ${PORT}`);
+  console.log(`\n🚀 WealthFlow API running on port ${PORT}`);
   console.log(`   Health: http://localhost:${PORT}/health`);
   console.log(`   Login:  POST http://localhost:${PORT}/auth/login\n`);
 });

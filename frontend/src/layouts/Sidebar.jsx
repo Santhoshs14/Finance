@@ -43,18 +43,18 @@ const SidebarLogo = ({ collapsed, isDark }) => (
       display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
       boxShadow: '0 4px 12px rgba(26,191,148,0.4)',
     }}>
-      {/* Vault icon: two arcs forming a V shape */}
+      {/* WealthFlow icon: upwards trending chart */}
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-        <path d="M4 4L12 20L20 4" stroke="white" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"/>
-        <circle cx="12" cy="7" r="2" fill="white" opacity="0.6"/>
+        <path d="M3 14l5-5 4 4 9-9" stroke="white" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M15 4h6v6" stroke="white" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
     </div>
     <AnimatePresence>
       {!collapsed && (
         <motion.div initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} transition={{ duration: 0.2 }} style={{ overflow: 'hidden', whiteSpace: 'nowrap' }}>
           <span style={{ fontWeight: 800, fontSize: 19, letterSpacing: '-0.03em', fontFamily: 'Sora, sans-serif' }}>
-            <span style={{ color: isDark ? '#f3f4f6' : '#111827' }}>Vault</span>
-            <span style={{ color: '#1abf94' }}>a</span>
+            <span style={{ color: isDark ? '#f3f4f6' : '#111827' }}>Wealth</span>
+            <span style={{ color: '#1abf94' }}>Flow</span>
           </span>
         </motion.div>
       )}

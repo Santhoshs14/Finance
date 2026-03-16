@@ -102,7 +102,7 @@ const generatePDF = (reportData, type = 'monthly') => {
     doc.on('error', reject);
 
     // Header
-    doc.fontSize(24).font('Helvetica-Bold').text('Finance Dashboard Report', { align: 'center' });
+    doc.fontSize(24).font('Helvetica-Bold').text('WealthFlow Report', { align: 'center' });
     doc.moveDown(0.5);
 
     if (type === 'monthly') {

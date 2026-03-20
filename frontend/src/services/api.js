@@ -1,5 +1,5 @@
 import { db, auth } from '../config/firebase';
-import { collection, doc, addDoc, updateDoc, deleteDoc, getDocs, writeBatch } from 'firebase/firestore';
+import { collection, doc, addDoc, updateDoc, deleteDoc, getDocs, getDoc, setDoc, writeBatch, increment } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 
 const getUserRef = (col) => {
@@ -12,12 +12,28 @@ const getDocRef = (col, id) => {
   return doc(db, `users/${auth.currentUser.uid}/${col}`, id);
 };
 
+const getProfileRef = () => {
+  if (!auth.currentUser) throw new Error("Not authenticated");
+  return doc(db, `users/${auth.currentUser.uid}`);
+};
+
 // Auth
 export const authAPI = {
   login: () => { throw new Error('Use AuthContext'); },
   register: () => { throw new Error('Use AuthContext'); },
   updateProfile: () => Promise.resolve({ data: { success: true } }),
   getStats: () => Promise.resolve({ data: {} }),
+};
+
+// Profile (user root doc — stores settings like cycleStartDay)
+export const profileAPI = {
+  get: async () => {
+    const snap = await getDoc(getProfileRef());
+    return snap.exists() ? snap.data() : {};
+  },
+  update: async (data) => {
+    await setDoc(getProfileRef(), data, { merge: true });
+  },
 };
 
 // Accounts
@@ -27,10 +43,62 @@ export const accountsAPI = {
   delete: async (id) => await deleteDoc(getDocRef('accounts', id)),
 };
 
+// Helper: adjust an account's balance by a delta amount
+const adjustAccountBalance = async (accountId, delta) => {
+  if (!accountId || delta === 0) return;
+  try {
+    const accRef = getDocRef('accounts', accountId);
+    await updateDoc(accRef, { 
+      balance: increment(Math.round(delta * 100) / 100) 
+    });
+  } catch (e) {
+    console.warn('Could not update account balance:', e);
+  }
+};
+
 export const transactionsAPI = {
-  create: async (data) => await addDoc(getUserRef('transactions'), data),
-  update: async (id, data) => await updateDoc(getDocRef('transactions', id), data),
-  delete: async (id) => await deleteDoc(getDocRef('transactions', id)),
+  create: async (data) => {
+    const ref = await addDoc(getUserRef('transactions'), data);
+    // Update linked account balance: amount is positive for income, negative for expense
+    if (data.account_id && data.amount != null) {
+      await adjustAccountBalance(data.account_id, parseFloat(data.amount));
+    }
+    return ref;
+  },
+  update: async (id, data) => {
+    // Read the old transaction to reverse its effect before applying new one
+    const oldSnap = await getDoc(getDocRef('transactions', id));
+    await updateDoc(getDocRef('transactions', id), data);
+    if (oldSnap.exists()) {
+      const old = oldSnap.data();
+      const oldAccountId = old.account_id;
+      const newAccountId = data.account_id ?? oldAccountId;
+      const oldAmount = parseFloat(old.amount || 0);
+      const newAmount = parseFloat(data.amount ?? old.amount ?? 0);
+
+      if (oldAccountId === newAccountId) {
+        // Same account — apply net delta
+        if (oldAccountId) {
+          await adjustAccountBalance(oldAccountId, newAmount - oldAmount);
+        }
+      } else {
+        // Account changed — reverse old, apply new
+        if (oldAccountId) await adjustAccountBalance(oldAccountId, -oldAmount);
+        if (newAccountId) await adjustAccountBalance(newAccountId, newAmount);
+      }
+    }
+  },
+  delete: async (id) => {
+    // Read the transaction before deleting to reverse balance effect
+    const snap = await getDoc(getDocRef('transactions', id));
+    await deleteDoc(getDocRef('transactions', id));
+    if (snap.exists()) {
+      const txData = snap.data();
+      if (txData.account_id && txData.amount != null) {
+        await adjustAccountBalance(txData.account_id, -parseFloat(txData.amount));
+      }
+    }
+  },
   deleteAll: async () => {
     const snap = await getDocs(getUserRef('transactions'));
     const batch = writeBatch(db);
@@ -85,6 +153,7 @@ export const reportsAPI = {
   getMonthly: () => Promise.resolve({ data: { data: [] } }),
   getYearly: () => Promise.resolve({ data: { data: [] } }),
 };
+
 export const importAPI = {
   uploadExcel: async (file, isPreview, accountId) => {
     return new Promise((resolve, reject) => {
@@ -135,13 +204,14 @@ export const importAPI = {
     });
   }
 };
+
 export const insightsAPI = {
   get: () => Promise.resolve({ data: { data: [] } }),
 };
+
 export const calculationsAPI = {
   get: () => Promise.resolve({ data: { data: {} } }),
   getSnapshots: () => Promise.resolve({ data: { data: [] } }),
 };
 
 export default {};
-

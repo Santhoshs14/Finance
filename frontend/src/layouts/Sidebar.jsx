@@ -23,6 +23,7 @@ import {
 const menuItems = [
   { label: 'Dashboard', path: '/', icon: HomeIcon },
   { label: 'Transactions', path: '/transactions', icon: ArrowsRightLeftIcon },
+  { label: 'Accounts', path: '/accounts', icon: BanknotesIcon },
   { label: 'Statistic', path: '/reports', icon: ChartBarIcon },
   { label: 'Budgets', path: '/budgets', icon: ChartPieIcon },
   { label: 'Savings', path: '/goals', icon: FlagIcon },

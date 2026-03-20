@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { db } from '../config/firebase';
-import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
 
 const DataContext = createContext(null);
@@ -15,6 +15,7 @@ export const DataProvider = ({ children }) => {
   const [investments, setInvestments] = useState([]);
   const [goals, setGoals] = useState([]);
   const [lending, setLending] = useState([]);
+  const [cycleStartDay, setCycleStartDay] = useState(25);
 
   useEffect(() => {
     let unsubscribes = [];
@@ -26,6 +27,15 @@ export const DataProvider = ({ children }) => {
 
     if (currentUser) {
       const uid = currentUser.uid;
+
+      // Listen to user profile doc for cycleStartDay
+      const profileUnsub = onSnapshot(doc(db, `users/${uid}`), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          setCycleStartDay(data.cycleStartDay || 25);
+        }
+      });
+      unsubscribes.push(profileUnsub);
 
       const accountsUnsub = onSnapshot(collection(db, `users/${uid}/accounts`), (snapshot) => {
         setAccounts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -71,6 +81,7 @@ export const DataProvider = ({ children }) => {
       setInvestments([]);
       setGoals([]);
       setLending([]);
+      setCycleStartDay(25);
       unsubscribeFirestoreListeners();
     }
 
@@ -87,7 +98,8 @@ export const DataProvider = ({ children }) => {
       creditCards,
       investments,
       goals,
-      lending
+      lending,
+      cycleStartDay,
     }}>
       {children}
     </DataContext.Provider>
@@ -99,3 +111,4 @@ export const useData = () => {
   if (!context) throw new Error('useData must be used within DataProvider');
   return context;
 };
+

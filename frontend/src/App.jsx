@@ -19,6 +19,7 @@ const CreditCards = lazy(() => import('./pages/CreditCards'));
 const Lending = lazy(() => import('./pages/Lending'));
 const Reports = lazy(() => import('./pages/Reports'));
 const Settings = lazy(() => import('./pages/Settings'));
+const Accounts = lazy(() => import('./pages/Accounts'));
 
 const PageLoader = () => (
   <div className="flex items-center justify-center h-[60vh]">
@@ -42,6 +43,7 @@ function AppRoutes() {
         <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
           <Route path="transactions" element={<Transactions />} />
+          <Route path="accounts" element={<Accounts />} />
           <Route path="budgets" element={<Budgets />} />
           <Route path="investments" element={<Investments />} />
           <Route path="goals" element={<Goals />} />

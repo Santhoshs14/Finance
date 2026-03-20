@@ -188,7 +188,8 @@ function BudgetCard({ cat, limit, spent = 0, salary, isDark, onSave }) {
 export default function Budgets() {
   const { isDark } = useTheme();
   const queryClient = useQueryClient();
-  const cycle = getCurrentFinancialMonth();
+  const { budgets, transactions: allTransactions, cycleStartDay } = useData();
+  const cycle = getCurrentFinancialMonth(new Date(), cycleStartDay);
 
   // Salary — stored in localStorage, defaulting to 98,000
   const [salary, setSalary] = useState(() => {
@@ -201,7 +202,6 @@ export default function Budgets() {
     localStorage.setItem(SALARY_KEY, String(val));
   };
 
-  const { budgets, transactions: allTransactions } = useData();
   const budgetsLoading = false;
 
   // Fetch cycle transactions directly (not from heavy calculations endpoint)
@@ -252,7 +252,7 @@ export default function Budgets() {
       <div style={{ marginBottom: 22 }}>
         <h1 style={{ fontSize: 26, fontWeight: 800, color: textMain, margin: 0 }}>Budgets</h1>
         <p style={{ fontSize: 13, color: textSub, margin: '4px 0 0' }}>
-          {cycle.label} · {cycle.startDate} → {cycle.endDate} · Resets on 25th
+          {cycle.label} · {cycle.startDate} → {cycle.endDate} · Resets on {cycleStartDay}th
         </p>
       </div>
 
@@ -302,7 +302,7 @@ export default function Budgets() {
       <div style={{ marginTop: 20, padding: '12px 16px', borderRadius: 12, background: isDark ? '#0a0e14' : '#f0fdf9', border: `1px solid ${isDark ? '#1a2235' : '#a7f3d0'}`, display: 'flex', alignItems: 'center', gap: 10 }}>
         <SparklesIcon style={{ width: 16, height: 16, color: '#1abf94', flexShrink: 0 }} />
         <p style={{ margin: 0, fontSize: 12, color: textSub }}>
-          <strong style={{ color: '#1abf94' }}>Tip:</strong> Click "Set limit" on any category to start tracking. Budgets auto-reset on the 25th each month.
+          <strong style={{ color: '#1abf94' }}>Tip:</strong> Click "Set limit" on any category to start tracking. Budgets auto-reset on the {cycleStartDay}th each month.
         </p>
       </div>
     </div>

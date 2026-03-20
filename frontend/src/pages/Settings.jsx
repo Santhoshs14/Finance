@@ -4,8 +4,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
-import { accountsAPI, authAPI } from '../services/api';
-import { PlusIcon, TrashIcon, PencilSquareIcon, SunIcon, MoonIcon, BellIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline';
+import { accountsAPI, authAPI, profileAPI } from '../services/api';
+import { PlusIcon, TrashIcon, PencilSquareIcon, SunIcon, MoonIcon, BellIcon, ArrowDownTrayIcon, CalendarDaysIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
 export default function Settings() {
@@ -20,8 +20,29 @@ export default function Settings() {
   const displayName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User';
   const initials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
-  const { accounts } = useData();
+  const { accounts, cycleStartDay } = useData();
   const loading = false;
+
+  // Cycle start day state
+  const [cycleDay, setCycleDay] = useState(cycleStartDay || 25);
+  const [savingCycle, setSavingCycle] = useState(false);
+
+  const handleSaveCycleDay = async () => {
+    const day = parseInt(cycleDay, 10);
+    if (isNaN(day) || day < 1 || day > 28) {
+      toast.error('Please enter a day between 1 and 28');
+      return;
+    }
+    setSavingCycle(true);
+    try {
+      await profileAPI.update({ cycleStartDay: day });
+      toast.success(`Cycle start day updated to ${day}th`);
+    } catch {
+      toast.error('Failed to save cycle day');
+    } finally {
+      setSavingCycle(false);
+    }
+  };
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['accounts'] });
@@ -109,6 +130,42 @@ export default function Settings() {
             </div>
           </motion.div>
         </AnimatePresence>
+      </div>
+
+      {/* Financial Cycle */}
+      <div className="glass-card p-6 mb-6">
+        <div className="flex items-center gap-2 mb-4">
+          <CalendarDaysIcon className="w-5 h-5 text-primary-500" />
+          <h3 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>Financial Cycle</h3>
+        </div>
+        <p className={`text-sm mb-4 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+          Set the day each month when your financial cycle resets. This affects Budgets, Transactions, and Dashboard month labels.
+        </p>
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <label className={`text-sm font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>Cycle starts on the</label>
+            <input
+              type="number"
+              min={1}
+              max={28}
+              value={cycleDay}
+              onChange={e => setCycleDay(e.target.value)}
+              className="input-field"
+              style={{ width: 72, textAlign: 'center', fontWeight: 700 }}
+            />
+            <label className={`text-sm font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>of every month</label>
+          </div>
+          <button
+            onClick={handleSaveCycleDay}
+            disabled={savingCycle}
+            className="btn-primary text-sm"
+          >
+            {savingCycle ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+        <p className={`text-xs mt-3 ${isDark ? 'text-dark-600' : 'text-dark-400'}`}>
+          Current setting: Cycle runs from the <strong>{cycleStartDay}th</strong> of each month to the <strong>{cycleStartDay - 1}th</strong> of the next month.
+        </p>
       </div>
 
       {/* Theme & Notifications */}

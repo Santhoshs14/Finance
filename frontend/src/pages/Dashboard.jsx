@@ -141,7 +141,7 @@ export default function Dashboard() {
     queryFn: async () => { try { const r = await calculationsAPI.get(); return r.data.data || {}; } catch { return null; } },
   });
   
-  const { transactions, accounts, goals, creditCards } = useData();
+  const { transactions, accounts, goals, creditCards, cycleStartDay } = useData();
   const txnLoading = false;
   const { data: snapshots = [] } = useQuery({
     queryKey: ['snapshots'],
@@ -176,7 +176,7 @@ export default function Dashboard() {
   }, []).sort((a, b) => b.value - a.value);
 
   const monthlyData = transactions.reduce((acc, txn) => {
-    const key = getShortFinancialMonthLabelForDate(txn.date);
+    const key = getShortFinancialMonthLabelForDate(txn.date, cycleStartDay);
     const ex = acc.find(i => i.month === key);
     const amt = Math.abs(txn.amount);
     if (ex) { if (txn.amount > 0) ex.income += amt; else ex.expense += amt; }

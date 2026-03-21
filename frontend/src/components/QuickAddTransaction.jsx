@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
 import { XMarkIcon } from '@heroicons/react/24/outline';
-
-const CATEGORIES = ['Investment','Rent','Home','Food','Travel','Petrol','Entertainment','Shopping','Bills','Utilities','Subscription','Lending','Gifts','Income','Other'];
+import toast from 'react-hot-toast';
 
 const getLocalISODate = () => {
   const tzOffset = (new Date()).getTimezoneOffset() * 60000;
@@ -22,7 +21,9 @@ const defaultForm = {
   recurrence_interval: 'monthly',
 };
 
-export default function QuickAddTransaction({ isOpen, onClose, onSubmit, accounts = [], creditCards = [], initialData = null }) {
+const today = new Date().toISOString().split('T')[0];
+
+export default function QuickAddTransaction({ isOpen, onClose, onSubmit, accounts = [], creditCards = [], categories = [], initialData = null }) {
   const { isDark } = useTheme();
   const [form, setForm] = useState(defaultForm);
 
@@ -57,6 +58,13 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
 
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    // Block future dates
+    if (form.date > today) {
+      toast.error('Future dates are not allowed for transactions.');
+      return;
+    }
+
     const rawAmount = parseFloat(form.amount);
     // Income category → positive, everything else → negative
     const signedAmount = form.category === 'Income' ? Math.abs(rawAmount) : -Math.abs(rawAmount);
@@ -68,7 +76,7 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
     } else {
       submitData.credit_card_id = null;
     }
-    
+
     if (submitData.is_recurring) {
       const d = new Date(submitData.date);
       if (submitData.recurrence_interval === 'monthly') d.setMonth(d.getMonth() + 1);
@@ -126,7 +134,7 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
           <div className="grid grid-cols-2 gap-4">
             <div>
               {label('Date')}
-              <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="input-field" style={inputStyle} required />
+              <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="input-field" style={inputStyle} max={today} required />
             </div>
             <div>
               {label('Amount (₹)')}
@@ -138,7 +146,10 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
             <div>
               {label('Category')}
               <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="input-field" style={inputStyle}>
-                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                {categories.length > 0
+                  ? categories.map((c) => <option key={c.id || c.name} value={c.name}>{c.name}</option>)
+                  : ['Food','Income','Other'].map(c => <option key={c} value={c}>{c}</option>)
+                }
               </select>
             </div>
             <div>

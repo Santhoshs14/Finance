@@ -115,6 +115,28 @@ export const budgetsAPI = {
   delete: async (id) => await deleteDoc(getDocRef('budgets', id)),
 };
 
+// Categories (custom, shared across budgets & transactions)
+export const categoriesAPI = {
+  create: async (data) => await addDoc(getUserRef('categories'), data),
+  delete: async (id) => await deleteDoc(getDocRef('categories', id)),
+};
+
+// Budget Snapshots — stored per cycle key, e.g. "2026-03"
+export const budgetSnapshotsAPI = {
+  get: async (cycleKey) => {
+    const snap = await getDoc(doc(db, `users/${auth.currentUser.uid}/budgetSnapshots/${cycleKey}`));
+    return snap.exists() ? snap.data() : null;
+  },
+  save: async (cycleKey, limits) => {
+    await setDoc(
+      doc(db, `users/${auth.currentUser.uid}/budgetSnapshots/${cycleKey}`),
+      { limits, updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  },
+};
+
+
 // Credit Cards
 export const creditCardsAPI = {
   create: async (data) => await addDoc(getUserRef('creditCards'), data),

@@ -1,20 +1,31 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
 import ChartCard from '../components/ChartCard';
+import { budgetSnapshotsAPI } from '../services/api';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { DocumentArrowDownIcon, ChartPieIcon } from '@heroicons/react/24/outline';
+import { DocumentArrowDownIcon, ChartPieIcon, ScaleIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
 export default function Reports() {
   const { isDark } = useTheme();
-  const { transactions } = useData();
+  const { transactions, categories } = useData();
   const [tab, setTab] = useState('monthly');
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [budgetLimits, setBudgetLimits] = useState({});
+
+  // Load budget snapshot for selected month
+  useEffect(() => {
+    if (tab !== 'monthly') return;
+    const cycleKey = `${year}-${String(month).padStart(2, '0')}`;
+    budgetSnapshotsAPI.get(cycleKey)
+      .then(data => setBudgetLimits(data?.limits || {}))
+      .catch(() => setBudgetLimits({}));
+  }, [month, year, tab]);
 
   const calculateReport = () => {
     setLoading(true);
@@ -228,13 +239,67 @@ export default function Reports() {
                     <XAxis type="number" hide />
                     <YAxis type="category" dataKey="name" width={80} axisLine={false} tickLine={false} tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12, fontWeight: 600 }} />
                     <Tooltip formatter={v => `₹${v.toLocaleString('en-IN')}`} {...ts} cursor={{ fill: 'rgba(99, 102, 241, 0.05)' }} />
-                    <Bar dataKey="total" fill="#6366f1" radius={[0, 10, 10, 0]} barSize={24}>
-                      {categoryData.map((entry, index) => (
-                        <motion.rect key={index} initial={{ width: 0 }} animate={{ width: 'auto' }} transition={{ duration: 1, delay: index * 0.1 }} />
-                      ))}
-                    </Bar>
+                    <Bar dataKey="total" fill="#6366f1" radius={[0, 10, 10, 0]} barSize={24}></Bar>
                   </BarChart>
                 </ResponsiveContainer>
+              </ChartCard>
+            )}
+
+            {/* ─── Budget vs Actual Table ─── */}
+            {tab === 'monthly' && categoryData.length > 0 && (
+              <ChartCard title={<span className="flex items-center gap-2"><ScaleIcon className="w-4 h-4 text-primary-500" /> Budget vs Actual</span>} className="shadow-lg">
+                <div className="overflow-x-auto">
+                  <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 6px' }}>
+                    <thead>
+                      <tr>
+                        {['Category', 'Budget', 'Spent', 'Difference', 'Status'].map(h => (
+                          <th key={h} style={{ textAlign: h === 'Category' ? 'left' : 'right', fontSize: 11, fontWeight: 700, color: isDark ? '#64748b' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', paddingBottom: 8, paddingLeft: h === 'Category' ? 0 : 8 }}>
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {categoryData.filter(r => r.name !== 'Income').map((row, i) => {
+                        const budgeted = budgetLimits[row.name] || 0;
+                        const spent = row.total;
+                        const diff = budgeted > 0 ? budgeted - spent : null;
+                        const over = diff !== null && diff < 0;
+                        const statusColor = budgeted === 0 ? '#64748b' : over ? '#ef4444' : diff / budgeted < 0.2 ? '#f59e0b' : '#10b981';
+                        const statusLabel = budgeted === 0 ? '—' : over ? 'Over' : diff / budgeted < 0.2 ? 'Near' : 'OK';
+                        return (
+                          <tr key={row.name}>
+                            <td style={{ fontSize: 13, fontWeight: 600, paddingTop: 6, paddingBottom: 6, color: isDark ? '#e2e8f0' : '#1e293b' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
+                                {row.name}
+                              </div>
+                            </td>
+                            <td style={{ textAlign: 'right', fontSize: 13, paddingLeft: 8, color: isDark ? '#94a3b8' : '#64748b' }}>
+                              {budgeted > 0 ? `₹${budgeted.toLocaleString('en-IN')}` : '—'}
+                            </td>
+                            <td style={{ textAlign: 'right', fontSize: 13, fontWeight: 700, paddingLeft: 8, color: '#ef4444' }}>
+                              ₹{spent.toLocaleString('en-IN')}
+                            </td>
+                            <td style={{ textAlign: 'right', fontSize: 13, fontWeight: 700, paddingLeft: 8, color: diff !== null ? (over ? '#ef4444' : '#10b981') : '#64748b' }}>
+                              {diff !== null ? `${over ? '-' : '+'}₹${Math.abs(diff).toLocaleString('en-IN')}` : '—'}
+                            </td>
+                            <td style={{ textAlign: 'right', paddingLeft: 8 }}>
+                              <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 700, background: `${statusColor}22`, color: statusColor }}>
+                                {statusLabel}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  {Object.keys(budgetLimits).length === 0 && (
+                    <p style={{ textAlign: 'center', fontSize: 12, padding: '12px 0 4px', color: isDark ? '#64748b' : '#94a3b8' }}>
+                      No budget limits set for this month. Set limits in the Budgets page.
+                    </p>
+                  )}
+                </div>
               </ChartCard>
             )}
 

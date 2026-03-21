@@ -28,7 +28,7 @@ export default function Transactions() {
 
   const activeCycle = FINANCIAL_MONTHS[selectedCycle];
   
-  const { transactions: allTransactions, accounts, creditCards } = useData();
+  const { transactions: allTransactions, accounts, creditCards, categories, cycleStartDay } = useData();
   const isLoading = false;
 
   const transactions = useMemo(() => {
@@ -210,9 +210,15 @@ export default function Transactions() {
       {/* ─── Quick Add / Edit Modal ─── */}
       <AnimatePresence>
         {showAdd && (
-          <QuickAddTransaction isOpen={showAdd} onClose={() => { setShowAdd(false); setEditTxn(null); }}
-            onSubmit={handleSubmit} accounts={accounts} creditCards={creditCards} initialData={editTxn} />
-        )}
+          <QuickAddTransaction
+        isOpen={showAdd}
+        onClose={() => { setShowAdd(false); setEditTxn(null); }}
+        onSubmit={handleSubmit}
+        accounts={accounts}
+        creditCards={creditCards}
+        categories={categories}
+        initialData={editTxn}
+      />  )}
       </AnimatePresence>
 
       {/* ─── Import Modal ─── */}

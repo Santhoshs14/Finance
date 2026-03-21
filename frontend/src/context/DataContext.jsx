@@ -1,16 +1,36 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { db } from '../config/firebase';
-import { collection, doc, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, orderBy, limit, getDocs, addDoc } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
 
 const DataContext = createContext(null);
 
+// Default categories seeded on first login
+const DEFAULT_CATEGORIES = [
+  { name: 'Investment',    color: '#6366f1' },
+  { name: 'Rent',          color: '#f59e0b' },
+  { name: 'Home',          color: '#8b5cf6' },
+  { name: 'Food',          color: '#ef4444' },
+  { name: 'Travel',        color: '#3b82f6' },
+  { name: 'Petrol',        color: '#f97316' },
+  { name: 'Entertainment', color: '#ec4899' },
+  { name: 'Shopping',      color: '#14b8a6' },
+  { name: 'Bills',         color: '#64748b' },
+  { name: 'Utilities',     color: '#eab308' },
+  { name: 'Subscription',  color: '#06b6d4' },
+  { name: 'Lending',       color: '#84cc16' },
+  { name: 'Gifts',         color: '#f43f5e' },
+  { name: 'Income',        color: '#10b981' },
+  { name: 'Other',         color: '#94a3b8' },
+];
+
 export const DataProvider = ({ children }) => {
   const { currentUser } = useAuth();
-  
+
   const [accounts, setAccounts] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [budgets, setBudgets] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [creditCards, setCreditCards] = useState([]);
   const [investments, setInvestments] = useState([]);
   const [goals, setGoals] = useState([]);
@@ -42,7 +62,7 @@ export const DataProvider = ({ children }) => {
       });
       unsubscribes.push(accountsUnsub);
 
-      const txQuery = query(collection(db, `users/${uid}/transactions`), orderBy('date', 'desc'), limit(100));
+      const txQuery = query(collection(db, `users/${uid}/transactions`), orderBy('date', 'desc'), limit(500));
       const txUnsub = onSnapshot(txQuery, (snapshot) => {
         setTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       });
@@ -52,6 +72,19 @@ export const DataProvider = ({ children }) => {
         setBudgets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       });
       unsubscribes.push(budgetsUnsub);
+
+      // Categories — listen and seed defaults if empty
+      const categoriesRef = collection(db, `users/${uid}/categories`);
+      const catUnsub = onSnapshot(categoriesRef, async (snapshot) => {
+        if (snapshot.empty) {
+          // Seed defaults
+          const batch = DEFAULT_CATEGORIES.map(cat => addDoc(categoriesRef, cat));
+          await Promise.all(batch);
+        } else {
+          setCategories(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
+      });
+      unsubscribes.push(catUnsub);
 
       const ccUnsub = onSnapshot(collection(db, `users/${uid}/creditCards`), (snapshot) => {
         setCreditCards(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -77,6 +110,7 @@ export const DataProvider = ({ children }) => {
       setAccounts([]);
       setTransactions([]);
       setBudgets([]);
+      setCategories([]);
       setCreditCards([]);
       setInvestments([]);
       setGoals([]);
@@ -95,6 +129,7 @@ export const DataProvider = ({ children }) => {
       accounts,
       transactions,
       budgets,
+      categories,
       creditCards,
       investments,
       goals,
@@ -111,4 +146,3 @@ export const useData = () => {
   if (!context) throw new Error('useData must be used within DataProvider');
   return context;
 };
-

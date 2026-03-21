@@ -41,6 +41,13 @@ export default function MainLayout() {
   const [searchQuery, setSearchQuery] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -61,7 +68,7 @@ export default function MainLayout() {
   const initials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
   // Dynamic sidebar width
-  const sidebarWidth = sidebarCollapsed ? 72 : 220;
+  const sidebarWidth = isMobile ? 0 : (sidebarCollapsed ? 72 : 220);
 
   const handleExport = async () => {
     setMenuOpen(false);
@@ -97,13 +104,10 @@ export default function MainLayout() {
         style={{ marginLeft: 0 }}
       >
         {/* Top bar */}
-        <div style={{
-          position: 'sticky', top: 0, zIndex: 40,
+        <div className="flex items-center px-4 sm:px-6 h-16 gap-3 sm:gap-4 sticky top-0 z-40" style={{
           background: topbarBg,
           backdropFilter: 'blur(14px)',
           borderBottom: `1px solid ${topbarBorder}`,
-          display: 'flex', alignItems: 'center',
-          padding: '0 24px', height: 64, gap: 16,
         }}>
           {/* Mobile hamburger */}
           <button onClick={() => setMobileMenuOpen(true)} className="md:hidden"
@@ -112,7 +116,7 @@ export default function MainLayout() {
           </button>
 
           {/* Search */}
-          <div style={{ flex: 1, maxWidth: 400, position: 'relative' }}>
+          <div className="flex-1 max-w-[200px] sm:max-w-[400px] relative">
             <MagnifyingGlassIcon style={{ width: 16, height: 16, color: textMuted, position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
             <input type="text" placeholder="Search analytics, transactions..." value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)} className="input-field"

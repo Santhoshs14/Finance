@@ -126,7 +126,7 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen, onCollapsed
           borderRight: `1px solid ${sidebarBorder}`,
           overflowX: 'hidden',
         }}
-        className={mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        className={`transition-transform duration-300 ease-in-out ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
       >
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 16px 20px', borderBottom: `1px solid ${sidebarBorder}` }}>

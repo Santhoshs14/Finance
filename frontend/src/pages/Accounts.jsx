@@ -141,7 +141,7 @@ export default function Accounts() {
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 320px) 1fr', gap: 24, alignItems: 'start' }}>
+      <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4 sm:gap-6 items-start">
         
         {/* Left Col: Account List */}
         <div className="glass-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -168,7 +168,7 @@ export default function Accounts() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
             
             {/* Top Stats */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5">
               <div className="glass-card" style={{ padding: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                   <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -212,7 +212,7 @@ export default function Accounts() {
                   <p style={{ fontSize: 12, color: textSub, margin: 0 }}>Recent {selectedAccount.type === 'credit' ? 'liability' : 'balance'} fluctuations</p>
                 </div>
               </div>
-              <div style={{ height: 200 }}>
+              <div className="h-[250px] sm:h-[300px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={accountStats.chartData}>
                     <defs>

@@ -415,7 +415,7 @@ export default function Budgets() {
       <SalaryBanner salary={salary} onEdit={handleSalaryEdit} isDark={isDark} />
 
       {/* ─── Summary Cards ─── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 22 }}>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-5">
         {[
           { label: 'Salary',      val: fmt(salary),       color: '#1abf94', icon: '💰' },
           { label: 'Budgeted',    val: fmt(totalBudgeted), color: '#3b82f6', icon: '📊' },
@@ -479,7 +479,7 @@ export default function Budgets() {
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
           {enriched.map(({ cat, limit, spent }) => (
             <div key={cat.id} style={{ position: 'relative' }}>
               <BudgetCard

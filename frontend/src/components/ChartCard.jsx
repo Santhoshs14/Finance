@@ -9,8 +9,7 @@ export default function ChartCard({ title, subtitle, children, className = '', d
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, delay }}
-      className={`glass-card ${className}`}
-      style={{ padding: 24 }}
+      className={`glass-card p-4 sm:p-6 ${className}`}
     >
       <div style={{ marginBottom: 18 }}>
         <h3 style={{ fontSize: 15, fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>{title}</h3>

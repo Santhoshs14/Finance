@@ -28,7 +28,7 @@ export default function GoalCard({ goal, delay = 0 }) {
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.4, delay }}
       whileHover={{ scale: 1.02 }}
-      className="glass-card p-6"
+      className="glass-card p-4 sm:p-6"
     >
       <div className="flex justify-between items-start mb-4">
         <div>

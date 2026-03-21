@@ -102,26 +102,30 @@ export default function Investments() {
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-5">
         <ChartCard title="Portfolio Allocation">
           {portfolioData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={280}>
-              <PieChart><Pie data={portfolioData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={3} dataKey="value">
-                {portfolioData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-              </Pie><Tooltip formatter={(v) => `₹${v.toLocaleString('en-IN')}`} {...tooltipStyle} /></PieChart>
-            </ResponsiveContainer>
+            <div className="h-[250px] sm:h-[300px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart><Pie data={portfolioData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={3} dataKey="value">
+                  {portfolioData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+                </Pie><Tooltip formatter={(v) => `₹${v.toLocaleString('en-IN')}`} {...tooltipStyle} /></PieChart>
+              </ResponsiveContainer>
+            </div>
           ) : <p className={`text-center py-16 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No investments yet</p>}
         </ChartCard>
 
         <ChartCard title="Profit / Loss">
           {plChartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={plChartData}><CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
-                <XAxis dataKey="name" stroke={isDark ? '#64748b' : '#94a3b8'} /><YAxis stroke={isDark ? '#64748b' : '#94a3b8'} />
-                <Tooltip formatter={(v) => `₹${v.toLocaleString('en-IN')}`} {...tooltipStyle} />
-                <Bar dataKey="invested" fill="#6366f1" radius={[4, 4, 0, 0]} /><Bar dataKey="current" fill="#10b981" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="h-[250px] sm:h-[300px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={plChartData}><CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
+                  <XAxis dataKey="name" stroke={isDark ? '#64748b' : '#94a3b8'} /><YAxis stroke={isDark ? '#64748b' : '#94a3b8'} />
+                  <Tooltip formatter={(v) => `₹${v.toLocaleString('en-IN')}`} {...tooltipStyle} />
+                  <Bar dataKey="invested" fill="#6366f1" radius={[4, 4, 0, 0]} /><Bar dataKey="current" fill="#10b981" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           ) : <p className={`text-center py-16 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No P/L data</p>}
         </ChartCard>
       </div>
@@ -149,7 +153,7 @@ export default function Investments() {
               </form>
             </motion.div>
           )}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {investments.map((inv, i) => {
               const pl = (inv.current_price - inv.buy_price) * inv.quantity;
               return (
@@ -186,7 +190,7 @@ export default function Investments() {
               </form>
             </motion.div>
           )}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
             {mutualFunds.map((mf, i) => (
               <motion.div key={mf.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }} className="glass-card p-5">
                 <h4 className={`font-semibold mb-2 ${isDark ? 'text-white' : 'text-dark-900'}`}>{mf.fund_name}</h4>
@@ -218,7 +222,7 @@ export default function Investments() {
           )}
           {/* SIP Projections */}
           {calculations?.sip_projections?.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               {calculations.sip_projections.map((sip, i) => (
                 <motion.div key={i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }} className="glass-card p-5">
                   <h4 className={`font-semibold mb-3 ${isDark ? 'text-white' : 'text-dark-900'}`}>₹{sip.monthly_amount}/month SIP</h4>

@@ -235,7 +235,7 @@ export default function Dashboard() {
   return (
     <div>
       {/* ─── Row 1: 5 KPI Cards ─── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, marginBottom: 20 }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-5 mb-5">
         <KpiCard label="Net Worth" value={netWorth} icon={ScaleIcon} color="#1abf94" isDark={isDark} />
         <KpiCard label="Account Balance" value={accountsBalance} icon={BanknotesIcon} color="#34d399" isDark={isDark} />
         <KpiCard label="Total Savings" value={totalSavings} icon={ArrowTrendingUpIcon} color="#8b5cf6" isDark={isDark} />
@@ -251,21 +251,23 @@ export default function Dashboard() {
       </motion.div>
 
       {/* ─── Row 3: Spending by Category + Budget Progress ─── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5 mb-5">
         {/* Category pie */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="glass-card" style={{ padding: 24 }}>
           <span style={{ fontSize: 15, fontWeight: 600, color: textMain, display: 'block', marginBottom: 4 }}>Spending by Category</span>
           <p style={{ fontSize: 11, color: textSub, marginBottom: 12 }}>Current cycle breakdown</p>
           {categoryData.length > 0 ? (
             <>
-              <ResponsiveContainer width="100%" height={200}>
-                <PieChart>
-                  <Pie data={categoryData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3} dataKey="value" stroke="none">
-                    {categoryData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip content={<CustomTooltip isDark={isDark} />} />
-                </PieChart>
-              </ResponsiveContainer>
+              <div className="h-[250px] sm:h-[300px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={categoryData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3} dataKey="value" stroke="none">
+                      {categoryData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip content={<CustomTooltip isDark={isDark} />} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                 {categoryData.slice(0, 5).map((item, i) => (
                   <span key={i} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: isDark ? '#252f3e' : '#f3f4f6', color: textMain, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -289,7 +291,7 @@ export default function Dashboard() {
       </div>
 
       {/* ─── Row 4: Goals + Net Worth Timeline ─── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: 20, marginBottom: 20 }}>
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.6fr] gap-4 sm:gap-5 mb-5">
         {/* Goals */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="glass-card" style={{ padding: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
@@ -307,27 +309,29 @@ export default function Dashboard() {
             <span style={{ fontSize: 15, fontWeight: 600, color: textMain }}>Net Worth Timeline</span>
             <span style={{ fontSize: 12, color: textSub }}>Historical snapshots</span>
           </div>
-          <ResponsiveContainer width="100%" height={180}>
-            <AreaChart data={snapshots.length > 0 ? snapshots : [
-              { date: 'Before', net_worth: netWorth * 0.8 }, { date: 'Now', net_worth: netWorth },
-            ]}>
-              <defs>
-                <linearGradient id="colorNW" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#1abf94" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#1abf94" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: textSub, fontSize: 11 }} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fill: textSub, fontSize: 10 }} tickFormatter={v => `₹${(v / 1000).toFixed(0)}k`} width={45} />
-              <Tooltip content={<CustomTooltip isDark={isDark} />} />
-              <Area type="monotone" dataKey="net_worth" stroke="#1abf94" strokeWidth={3} fillOpacity={1} fill="url(#colorNW)" />
-            </AreaChart>
-          </ResponsiveContainer>
+          <div className="h-[250px] sm:h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={snapshots.length > 0 ? snapshots : [
+                { date: 'Before', net_worth: netWorth * 0.8 }, { date: 'Now', net_worth: netWorth },
+              ]}>
+                <defs>
+                  <linearGradient id="colorNW" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#1abf94" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#1abf94" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: textSub, fontSize: 11 }} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: textSub, fontSize: 10 }} tickFormatter={v => `₹${(v / 1000).toFixed(0)}k`} width={45} />
+                <Tooltip content={<CustomTooltip isDark={isDark} />} />
+                <Area type="monotone" dataKey="net_worth" stroke="#1abf94" strokeWidth={3} fillOpacity={1} fill="url(#colorNW)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </motion.div>
       </div>
 
       {/* ─── Row 5: Insights + Recent Transactions ─── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.8fr', gap: 20, marginBottom: 20 }}>
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.8fr] gap-4 sm:gap-5 mb-5">
         {/* Insights */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="glass-card" style={{ padding: 24 }}>
           <span style={{ fontSize: 15, fontWeight: 600, color: textMain, display: 'block', marginBottom: 14 }}>💡 Insights</span>

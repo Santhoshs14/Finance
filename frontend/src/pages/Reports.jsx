@@ -256,7 +256,7 @@ export default function Reports() {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
 
           {/* KPI Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-5">
             {[
               { label: 'Transactions', value: report.total_transactions, color: 'text-primary-500',  icon: '📝' },
               { label: 'Income',       value: fmt(report.total_income),  color: 'text-success-500', icon: '📈' },
@@ -276,7 +276,7 @@ export default function Reports() {
 
           {/* Intelligence Cards (cycle mode only) */}
           {tab === 'cycle' && (topOverspent || report.most_improved?.name) && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 24 }}>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-5">
               {topOverspent && (
                 <div style={{ padding: '14px 16px', borderRadius: 14, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                   <div style={{ width: 36, height: 36, borderRadius: 10, background: '#ef444422', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -309,10 +309,10 @@ export default function Reports() {
           )}
 
           {/* Charts */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             {/* Spending by Category */}
             {tab === 'cycle' && categoryData.length > 0 && (
-              <ChartCard title="Spending by Category" className="shadow-lg h-[400px]">
+              <ChartCard title="Spending by Category" className="shadow-lg h-[300px] sm:h-[400px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={categoryData.filter(d => d.name !== 'Income')} layout="vertical" margin={{ left: 20, right: 30, top: 10, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={isDark ? '#334155' : '#e2e8f0'} />
@@ -382,7 +382,7 @@ export default function Reports() {
 
             {/* Category Trend Chart (last 6 cycles) */}
             {tab === 'cycle' && trendChartData.length > 0 && trendCategories.length > 0 && (
-              <ChartCard title={<span className="flex items-center gap-2"><ArrowTrendingUpIcon className="w-4 h-4 text-primary-500" /> Category Trend (6 Cycles)</span>} className="shadow-lg h-[320px] lg:col-span-2">
+              <ChartCard title={<span className="flex items-center gap-2"><ArrowTrendingUpIcon className="w-4 h-4 text-primary-500" /> Category Trend (6 Cycles)</span>} className="shadow-lg h-[250px] sm:h-[320px] lg:col-span-2">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={trendChartData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? '#334155' : '#e2e8f0'} />
@@ -411,7 +411,7 @@ export default function Reports() {
 
             {/* Yearly breakdown */}
             {tab === 'yearly' && monthlyData.length > 0 && (
-              <ChartCard title="Cash Flow Breakdown" className="shadow-lg h-[400px] lg:col-span-2">
+              <ChartCard title="Cash Flow Breakdown" className="shadow-lg h-[300px] sm:h-[400px] lg:col-span-2">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={monthlyData} margin={{ top: 20, right: 30, left: 10, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? '#334155' : '#e2e8f0'} />

@@ -25,8 +25,8 @@ export default function StatCard({ title, value, prefix = '₹', suffix = '', ic
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, delay }}
       whileHover={{ y: -4, boxShadow: `0 8px 32px ${glowColors[color] || glowColors.primary}` }}
-      className="glass-card"
-      style={{ padding: 24, position: 'relative', overflow: 'hidden', cursor: 'default' }}
+      className="glass-card p-4 sm:p-6"
+      style={{ position: 'relative', overflow: 'hidden', cursor: 'default' }}
     >
       {/* Background glow blob */}
       <div

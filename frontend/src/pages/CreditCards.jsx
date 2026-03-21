@@ -223,8 +223,8 @@ export default function CreditCards() {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
           
           {/* TOP METRICS */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className={`col-span-1 md:col-span-2 rounded-3xl p-8 relative overflow-hidden text-white shadow-xl shadow-indigo-500/20`}
+          <div className="flex flex-col lg:flex-row gap-4 sm:gap-6">
+            <div className={`flex-1 rounded-3xl p-8 relative overflow-hidden text-white shadow-xl shadow-indigo-500/20`}
                  style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #4338ca 100%)' }}>
               <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-5 rounded-full -translate-y-1/2 translate-x-1/3 blur-2xl" />
               
@@ -266,7 +266,7 @@ export default function CreditCards() {
             </div>
 
             {/* BILLING CYCLES */}
-            <div className={`rounded-3xl p-6 border flex flex-col justify-between shadow-lg ${isDark ? 'bg-dark-800 border-dark-700' : 'bg-white border-dark-200'}`}>
+            <div className={`lg:w-1/3 rounded-3xl p-6 border flex flex-col justify-between shadow-lg ${isDark ? 'bg-dark-800 border-dark-700' : 'bg-white border-dark-200'}`}>
               <div>
                 <div className="flex items-center gap-2 mb-4">
                   <BanknotesIcon className={`w-6 h-6 ${isDark ? 'text-primary-400' : 'text-primary-600'}`} />
@@ -311,7 +311,7 @@ export default function CreditCards() {
             <div className={`rounded-3xl p-6 border shadow-sm ${isDark ? 'bg-dark-800 border-dark-700' : 'bg-white border-dark-100'}`}>
               <h3 className={`font-bold text-lg mb-6 ${isDark ? 'text-white' : 'text-dark-900'}`}>Spending Breakdown</h3>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
-                <div className="h-64">
+                <div className="h-[250px] sm:h-[300px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={categoryData} cx="50%" cy="50%" innerRadius={70} outerRadius={100} paddingAngle={4} dataKey="value" cornerRadius={6}>

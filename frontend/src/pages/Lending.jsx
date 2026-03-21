@@ -65,7 +65,7 @@ export default function Lending() {
         </motion.button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-5">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="glass-card p-6">
           <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Total Lent (Pending)</p>
           <p className="text-3xl font-bold text-warning-500 mt-1">₹{totalLent.toLocaleString('en-IN')}</p>
@@ -78,7 +78,7 @@ export default function Lending() {
 
       {showAdd && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card p-6 mb-6">
-          <form onSubmit={handleAdd} className="grid grid-cols-2 md:grid-cols-5 gap-4 items-end">
+          <form onSubmit={handleAdd} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 items-end">
             <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Person</label><input value={form.person_name} onChange={e => setForm({...form, person_name: e.target.value})} className="input-field" required /></div>
             <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Amount</label><input type="number" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} className="input-field" required /></div>
             <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Type</label><select value={form.type} onChange={e => setForm({...form, type: e.target.value})} className="input-field"><option value="lent">Lent</option><option value="borrowed">Borrowed</option></select></div>

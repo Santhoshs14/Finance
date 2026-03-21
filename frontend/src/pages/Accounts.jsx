@@ -11,6 +11,9 @@ import {
 import TransactionTable from '../components/TransactionTable';
 import QuickAddTransaction from '../components/QuickAddTransaction';
 
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { transactionsAPI } from '../services/api';
+
 const fmt = (n) => '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n || 0);
 
 const CustomTooltip = ({ active, payload, label, isDark }) => {
@@ -25,9 +28,15 @@ const CustomTooltip = ({ active, payload, label, isDark }) => {
 
 export default function Accounts() {
   const { isDark } = useTheme();
-  const { accounts, creditCards, transactions } = useData();
+  const queryClient = useQueryClient();
+  const { accounts, creditCards, transactions, cycleStartDay } = useData();
   const [selectedAccountId, setSelectedAccountId] = useState(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+
+  const addTxnMutation = useMutation({
+    mutationFn: (data) => transactionsAPI.create(data, cycleStartDay),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['transactions'] }); },
+  });
 
   // Separate accounts purely into Banks vs Credits
   const bankAccounts = useMemo(() => accounts.filter(a => a.type !== 'credit').sort((a, b) => (b.balance || 0) - (a.balance || 0)), [accounts]);
@@ -242,6 +251,7 @@ export default function Accounts() {
           <QuickAddTransaction 
             isOpen={showQuickAdd} 
             onClose={() => setShowQuickAdd(false)}
+            onSubmit={(data) => addTxnMutation.mutate(data)}
             accounts={bankAccounts} 
             creditCards={creditCards}
             defaultAccountId={selectedAccount?.type !== 'credit' ? selectedAccount.id : null}

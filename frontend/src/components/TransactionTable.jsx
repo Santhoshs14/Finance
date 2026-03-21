@@ -1,39 +1,34 @@
 import { motion } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
 
-const categoryColors = {
-  Food: 'bg-orange-500/20 text-orange-500',
-  Travel: 'bg-blue-500/20 text-blue-500',
-  Shopping: 'bg-pink-500/20 text-pink-500',
-  Bills: 'bg-red-500/20 text-red-500',
-  Entertainment: 'bg-purple-500/20 text-purple-500',
-  Investment: 'bg-emerald-500/20 text-emerald-500',
-  Income: 'bg-green-500/20 text-green-500',
-  Rent: 'bg-amber-500/20 text-amber-500',
-  Petrol: 'bg-yellow-500/20 text-yellow-600',
-  Utilities: 'bg-cyan-500/20 text-cyan-500',
-  Subscription: 'bg-sky-500/20 text-sky-500',
-  Lending: 'bg-teal-500/20 text-teal-500',
-  Gifts: 'bg-rose-500/20 text-rose-500',
-  Home: 'bg-lime-500/20 text-lime-600',
-  Other: 'bg-gray-500/20 text-gray-500',
+const FALLBACK_COLORS = {
+  Food: '#ef4444', Travel: '#3b82f6', Shopping: '#14b8a6',
+  Bills: '#64748b', Entertainment: '#ec4899', Investment: '#6366f1',
+  Income: '#10b981', Rent: '#f59e0b', Petrol: '#f97316',
+  Utilities: '#eab308', Subscription: '#06b6d4', Lending: '#84cc16',
+  Gifts: '#f43f5e', Home: '#8b5cf6', Other: '#94a3b8',
 };
 
 const paymentColors = {
-  'Cash': 'bg-emerald-500/15 text-emerald-600',
+  'Cash':        'bg-emerald-500/15 text-emerald-600',
   'Credit Card': 'bg-purple-500/15 text-purple-600',
-  'Debit Card': 'bg-blue-500/15 text-blue-600',
-  'UPI': 'bg-orange-500/15 text-orange-600',
+  'Debit Card':  'bg-blue-500/15 text-blue-600',
+  'UPI':         'bg-orange-500/15 text-orange-600',
 };
 
 const paymentIcons = {
-  'Cash': '💵',
-  'Credit Card': '💳',
-  'Debit Card': '🏧',
-  'UPI': '📱',
+  'Cash': '💵', 'Credit Card': '💳', 'Debit Card': '🏧', 'UPI': '📱',
 };
 
-export default function TransactionTable({ transactions, onEdit, onDelete }) {
+/**
+ * Resolve category color from live categories list, falling back to hardcoded map.
+ */
+const resolveCatColor = (categoryName, categories = []) => {
+  const found = categories.find(c => c.name === categoryName);
+  return found?.color || FALLBACK_COLORS[categoryName] || '#94a3b8';
+};
+
+export default function TransactionTable({ transactions, onEdit, onDelete, categories = [] }) {
   const { isDark } = useTheme();
 
   if (!transactions?.length) {
@@ -59,69 +54,76 @@ export default function TransactionTable({ transactions, onEdit, onDelete }) {
           </tr>
         </thead>
         <tbody>
-          {transactions.map((txn, i) => (
-            <motion.tr
-              key={txn.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.3, delay: i * 0.03 }}
-              className={`${isDark ? 'border-dark-800 hover:bg-dark-800/50' : 'border-dark-100 hover:bg-dark-50'} border-b transition-colors duration-200`}
-            >
-              <td className={`py-3 px-4 text-sm whitespace-nowrap ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
-                {new Date(txn.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-              </td>
-              <td className="py-3 px-4">
-                <div className="flex items-center flex-wrap gap-1.5">
-                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${categoryColors[txn.category] || categoryColors.Other}`}>
-                    {txn.category}
-                  </span>
-                  {txn.is_recurring && (
+          {transactions.map((txn, i) => {
+            const catColor = resolveCatColor(txn.category, categories);
+            return (
+              <motion.tr
+                key={txn.id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.3, delay: Math.min(i * 0.03, 0.3) }}
+                className={`${isDark ? 'border-dark-800 hover:bg-dark-800/50' : 'border-dark-100 hover:bg-dark-50'} border-b transition-colors duration-200`}
+              >
+                <td className={`py-3 px-4 text-sm whitespace-nowrap ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
+                  {new Date(txn.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </td>
+                <td className="py-3 px-4">
+                  <div className="flex items-center flex-wrap gap-1.5">
                     <span
-                      className={`text-[10px] px-1.5 py-0.5 rounded border ${isDark ? 'border-primary-500/50 text-primary-400' : 'border-primary-200 text-primary-600'} uppercase font-bold tracking-wider`}
-                      title="Recurring Transaction"
+                      style={{ background: `${catColor}22`, color: catColor, borderColor: `${catColor}44` }}
+                      className="text-xs px-2.5 py-1 rounded-full font-medium border flex items-center gap-1.5"
                     >
-                      ↻ {txn.recurrence_interval}
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: catColor, display: 'inline-block', flexShrink: 0 }} />
+                      {txn.category}
                     </span>
+                    {txn.is_recurring && (
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded border ${isDark ? 'border-primary-500/50 text-primary-400' : 'border-primary-200 text-primary-600'} uppercase font-bold tracking-wider`}
+                        title="Recurring Transaction"
+                      >
+                        ↻ {txn.recurrence_interval}
+                      </span>
+                    )}
+                  </div>
+                </td>
+                <td className="py-3 px-4">
+                  {txn.payment_type ? (
+                    <span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap ${paymentColors[txn.payment_type] || 'bg-gray-500/15 text-gray-600'}`}>
+                      {paymentIcons[txn.payment_type] || '💰'} {txn.payment_type}
+                    </span>
+                  ) : (
+                    <span className={`text-xs ${isDark ? 'text-dark-600' : 'text-dark-300'}`}>—</span>
                   )}
-                </div>
-              </td>
-              <td className="py-3 px-4">
-                {txn.payment_type ? (
-                  <span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap ${paymentColors[txn.payment_type] || 'bg-gray-500/15 text-gray-600'}`}>
-                    {paymentIcons[txn.payment_type] || '💰'} {txn.payment_type}
-                  </span>
-                ) : (
-                  <span className={`text-xs ${isDark ? 'text-dark-600' : 'text-dark-300'}`}>—</span>
-                )}
-              </td>
-              <td className={`py-3 px-4 text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'} max-w-[180px] truncate`}>
-                {txn.notes || '—'}
-              </td>
-              <td className={`py-3 px-4 text-sm text-right font-semibold whitespace-nowrap ${txn.amount < 0 ? 'text-red-500' : 'text-emerald-500'}`}>
-                {txn.amount < 0 ? '-' : '+'}₹{Math.abs(txn.amount).toLocaleString('en-IN')}
-              </td>
-              <td className="py-3 px-4 text-right">
-                <div className="flex gap-1.5 justify-end">
-                  {onEdit && (
-                    <button
-                      onClick={() => onEdit(txn)}
-                      className={`text-xs px-2.5 py-1 rounded-lg ${isDark ? 'hover:bg-dark-700 text-dark-400' : 'hover:bg-dark-100 text-dark-500'} transition-colors`}
-                    >
-                      Edit
-                    </button>
-                  )}
-                  {onDelete && (
-                    <button
-                      onClick={() => onDelete(txn.id)}
-                      className="text-xs px-2.5 py-1 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors"
-                    >
-                      Delete
-                    </button>
-                  )}
-                </div>
-              </td>
-            </motion.tr>
-          ))}
+                </td>
+                <td className={`py-3 px-4 text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'} max-w-[180px] truncate`}>
+                  {txn.notes || '—'}
+                </td>
+                <td className={`py-3 px-4 text-sm text-right font-semibold whitespace-nowrap ${txn.amount < 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                  {txn.amount < 0 ? '-' : '+'}₹{Math.abs(txn.amount).toLocaleString('en-IN')}
+                </td>
+                <td className="py-3 px-4 text-right">
+                  <div className="flex gap-1.5 justify-end">
+                    {onEdit && (
+                      <button
+                        onClick={() => onEdit(txn)}
+                        className={`text-xs px-2.5 py-1 rounded-lg ${isDark ? 'hover:bg-dark-700 text-dark-400' : 'hover:bg-dark-100 text-dark-500'} transition-colors`}
+                      >
+                        Edit
+                      </button>
+                    )}
+                    {onDelete && (
+                      <button
+                        onClick={() => onDelete(txn.id)}
+                        className="text-xs px-2.5 py-1 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </motion.tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

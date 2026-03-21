@@ -1,26 +1,33 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
 import { budgetSnapshotsAPI, categoriesAPI } from '../services/api';
-import { getCurrentFinancialMonth } from '../utils/financialMonth';
+import { getFinancialCycle, getCycleDayInfo } from '../utils/financialMonth';
 import {
   PencilSquareIcon, CheckIcon, XMarkIcon,
-  BanknotesIcon, ArrowTrendingDownIcon, SparklesIcon,
+  BanknotesIcon, SparklesIcon,
   PlusIcon, TrashIcon, InformationCircleIcon,
+  ArrowTrendingUpIcon, ExclamationTriangleIcon, ShieldCheckIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
 const SALARY_KEY = 'vault_monthly_salary';
 const fmt = (n) => '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n || 0);
 
+/* ─── Status helper ─── */
+const getBudgetStatus = (pct) => {
+  if (pct >= 100) return { label: 'Over Budget', color: '#ef4444', bg: 'rgba(239,68,68,0.12)', icon: ExclamationTriangleIcon };
+  if (pct >= 80)  return { label: 'Warning',     color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', icon: ExclamationTriangleIcon };
+  return              { label: 'Safe',           color: '#1abf94', bg: 'rgba(26,191,148,0.10)', icon: ShieldCheckIcon };
+};
+
 /* ─── Salary Banner ─── */
 function SalaryBanner({ salary, onEdit, isDark }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(salary);
   const textMain = isDark ? '#f3f4f6' : '#111827';
-  const textSub = isDark ? '#9ca3af' : '#6b7280';
+  const textSub  = isDark ? '#9ca3af' : '#6b7280';
 
   const save = () => {
     const v = parseFloat(val);
@@ -69,82 +76,163 @@ function SalaryBanner({ salary, onEdit, isDark }) {
 }
 
 /* ─── Budget Card ─── */
-function BudgetCard({ cat, limit, spent = 0, salary, isDark, onSave }) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(String(limit));
+function BudgetCard({ cat, limit, spent = 0, salary, isDark, onSave, cycleInfo }) {
+  const [editing, setEditing]   = useState(false);
+  const [value, setValue]       = useState(String(limit));
+  const [hovered, setHovered]   = useState(false);
 
   useEffect(() => { setValue(String(limit)); }, [limit]);
 
-  const pct = limit > 0 ? Math.min((spent / limit) * 100, 100) : 0;
-  const salaryPct = salary > 0 ? Math.min((limit / salary) * 100, 100) : 0;
-  const status = pct >= 100 ? 'over' : pct >= 80 ? 'warn' : pct >= 50 ? 'mid' : 'ok';
-  const barColor = { over: '#ef4444', warn: '#f59e0b', mid: '#3b82f6', ok: '#1abf94' }[status];
-  const textMain = isDark ? '#f3f4f6' : '#111827';
-  const textSub = isDark ? '#9ca3af' : '#6b7280';
+  const pct        = limit > 0 ? (spent / limit) * 100 : 0;
+  const cappedPct  = Math.min(pct, 100);
+  const salaryPct  = salary > 0 ? Math.min((limit / salary) * 100, 100) : 0;
+  const status     = getBudgetStatus(pct);
+  const textMain   = isDark ? '#f3f4f6' : '#111827';
+  const textSub    = isDark ? '#9ca3af' : '#6b7280';
+
+  // Predictive analytics
+  const { daysElapsed, totalDays, daysLeft } = cycleInfo;
+  const projectedSpend = limit > 0 && daysElapsed > 0
+    ? (spent / daysElapsed) * totalDays
+    : 0;
+  const projectedPct = limit > 0 ? (projectedSpend / limit) * 100 : 0;
+  const willExceed   = projectedSpend > limit && spent < limit;
 
   const handleSave = () => {
     const v = parseFloat(value);
-    if (!isNaN(v) && v >= 0) { onSave(cat.name, v); setEditing(false); }
+    if (!isNaN(v) && v >= 0) { onSave(cat.id, v); setEditing(false); }
   };
 
+  const StatusIcon = status.icon;
+
   return (
-    <motion.div layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      onHoverStart={() => setHovered(true)}
+      onHoverEnd={() => setHovered(false)}
       style={{
         background: isDark ? '#161b22' : '#ffffff',
-        border: `1px solid ${isDark ? '#30363d' : '#e5e7eb'}`,
+        border: `1px solid ${pct >= 100 ? '#ef444444' : pct >= 80 ? '#f59e0b44' : isDark ? '#30363d' : '#e5e7eb'}`,
         borderRadius: 14, padding: '16px', position: 'relative', overflow: 'hidden',
-        transition: 'box-shadow 0.2s',
+        transition: 'box-shadow 0.2s, border-color 0.3s',
+        boxShadow: hovered ? (isDark ? '0 4px 24px rgba(0,0,0,0.6)' : '0 4px 24px rgba(0,0,0,0.1)') : 'none',
       }}
-      whileHover={{ boxShadow: isDark ? '0 4px 20px rgba(0,0,0,0.6)' : '0 4px 20px rgba(0,0,0,0.08)' }}
     >
-      <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: cat.color, borderRadius: '14px 0 0 14px' }} />
+      {/* Left color stripe */}
+      <div style={{ position: 'absolute', top: 0, left: 0, width: 4, height: '100%', background: cat.color, borderRadius: '14px 0 0 14px' }} />
 
-      <div style={{ paddingLeft: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
+      <div style={{ paddingLeft: 10 }}>
+        {/* Header row */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
           <div>
-            <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: textMain }}>{cat.name}</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: cat.color, flexShrink: 0 }} />
+              <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: textMain }}>{cat.name}</p>
+            </div>
             {salary > 0 && <p style={{ margin: 0, fontSize: 11, color: textSub }}>{salaryPct.toFixed(0)}% of salary</p>}
           </div>
 
-          {editing ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <input type="number" value={value} onChange={e => setValue(e.target.value)} autoFocus
-                onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditing(false); }}
-                style={{ width: 88, padding: '4px 8px', borderRadius: 8, border: `1px solid ${cat.color}`, background: isDark ? '#0a0e14' : '#f9fafb', color: textMain, fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
-              <button onClick={handleSave} style={{ border: 'none', background: '#1abf94', borderRadius: 6, width: 26, height: 26, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CheckIcon style={{ width: 12, height: 12, color: '#fff' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {/* Status badge */}
+            {limit > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 99, background: status.bg, border: `1px solid ${status.color}44` }}>
+                <StatusIcon style={{ width: 10, height: 10, color: status.color }} />
+                <span style={{ fontSize: 10, fontWeight: 700, color: status.color }}>{status.label}</span>
+              </div>
+            )}
+
+            {/* Edit button */}
+            {editing ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <input type="number" value={value} onChange={e => setValue(e.target.value)} autoFocus
+                  onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditing(false); }}
+                  style={{ width: 80, padding: '4px 8px', borderRadius: 8, border: `1px solid ${cat.color}`, background: isDark ? '#0a0e14' : '#f9fafb', color: textMain, fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
+                <button onClick={handleSave} style={{ border: 'none', background: '#1abf94', borderRadius: 6, width: 26, height: 26, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <CheckIcon style={{ width: 12, height: 12, color: '#fff' }} />
+                </button>
+                <button onClick={() => setEditing(false)} style={{ border: 'none', background: isDark ? '#374151' : '#e5e7eb', borderRadius: 6, width: 26, height: 26, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <XMarkIcon style={{ width: 12, height: 12, color: textSub }} />
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => { setValue(String(limit)); setEditing(true); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 8, border: `1px solid ${isDark ? '#252f3e' : '#e5e7eb'}`, background: 'transparent', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: textSub, fontFamily: 'inherit' }}>
+                <PencilSquareIcon style={{ width: 12, height: 12 }} />
+                {limit > 0 ? fmt(limit) : 'Set limit'}
               </button>
-              <button onClick={() => setEditing(false)} style={{ border: 'none', background: isDark ? '#374151' : '#e5e7eb', borderRadius: 6, width: 26, height: 26, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <XMarkIcon style={{ width: 12, height: 12, color: textSub }} />
-              </button>
-            </div>
-          ) : (
-            <button onClick={() => { setValue(String(limit)); setEditing(true); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 8, border: `1px solid ${isDark ? '#252f3e' : '#e5e7eb'}`, background: 'transparent', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: textSub, fontFamily: 'inherit' }}>
-              <PencilSquareIcon style={{ width: 12, height: 12 }} />
-              {limit > 0 ? fmt(limit) : 'Set limit'}
-            </button>
-          )}
+            )}
+          </div>
         </div>
 
         {limit > 0 ? (
           <>
-            <div style={{ height: 6, borderRadius: 99, background: isDark ? '#1a2235' : '#f3f4f6', overflow: 'hidden', marginBottom: 10 }}>
-              <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.7, ease: 'easeOut' }}
-                style={{ height: '100%', borderRadius: 99, background: barColor }} />
+            {/* Progress bar */}
+            <div style={{ height: 8, borderRadius: 99, background: isDark ? '#1a2235' : '#f3f4f6', overflow: 'hidden', marginBottom: 4, position: 'relative' }}>
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${cappedPct}%` }}
+                transition={{ duration: 0.8, ease: 'easeOut' }}
+                style={{ height: '100%', borderRadius: 99, background: pct >= 100 ? '#ef4444' : pct >= 80 ? '#f59e0b' : '#1abf94', position: 'relative' }}
+              />
+              {/* Projected overlay */}
+              {willExceed && hovered && (
+                <div style={{
+                  position: 'absolute', top: 0, left: 0,
+                  width: `${Math.min(projectedPct, 100)}%`,
+                  height: '100%', borderRadius: 99,
+                  background: 'rgba(239,68,68,0.25)',
+                  border: '1px dashed #ef4444',
+                }} />
+              )}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: textSub, marginBottom: 10 }}>
+              <span>{cappedPct.toFixed(0)}% used</span>
+              <span>{fmt(Math.max(0, limit - spent))} left</span>
+            </div>
+
+            {/* Stats row */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
               {[
-                { label: 'Spent', val: fmt(spent), color: '#ef4444' },
-                { label: 'Left', val: fmt(Math.max(0, limit - spent)), color: '#1abf94' },
-                { label: 'Used', val: `${pct.toFixed(0)}%`, color: barColor },
+                { label: 'Spent',  val: fmt(spent),                  color: '#ef4444' },
+                { label: 'Left',   val: fmt(Math.max(0, limit - spent)), color: '#1abf94' },
+                { label: 'Used',   val: `${pct.toFixed(0)}%`,         color: status.color },
               ].map(s => (
-                <div key={s.label} style={{ textAlign: 'center', padding: '8px 4px', background: isDark ? '#0a0e14' : '#f9fafb', borderRadius: 8 }}>
-                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: s.color }}>{s.val}</p>
+                <div key={s.label} style={{ textAlign: 'center', padding: '7px 4px', background: isDark ? '#0a0e14' : '#f9fafb', borderRadius: 8 }}>
+                  <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: s.color }}>{s.val}</p>
                   <p style={{ margin: '2px 0 0', fontSize: 10, color: textSub, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{s.label}</p>
                 </div>
               ))}
             </div>
+
+            {/* Predictive line */}
+            <AnimatePresence>
+              {hovered && projectedSpend > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  style={{ overflow: 'hidden' }}
+                >
+                  <div style={{
+                    marginTop: 10, padding: '8px 10px', borderRadius: 8,
+                    background: willExceed ? 'rgba(239,68,68,0.08)' : 'rgba(26,191,148,0.08)',
+                    border: `1px solid ${willExceed ? '#ef444433' : '#1abf9433'}`,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                    <ArrowTrendingUpIcon style={{ width: 13, height: 13, color: willExceed ? '#ef4444' : '#1abf94', flexShrink: 0 }} />
+                    <p style={{ margin: 0, fontSize: 11, color: willExceed ? '#ef4444' : '#1abf94' }}>
+                      {willExceed
+                        ? `Projected to reach ${fmt(projectedSpend)} by end of cycle (${daysLeft}d left)`
+                        : `On track · Est. ${fmt(projectedSpend)} by end of cycle`}
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </>
         ) : (
           <p style={{ fontSize: 12, color: textSub, margin: '4px 0 0' }}>Click "Set limit" to track this category</p>
@@ -158,68 +246,74 @@ function BudgetCard({ cat, limit, spent = 0, salary, isDark, onSave }) {
 export default function Budgets() {
   const { isDark } = useTheme();
   const { categories, transactions: allTransactions, cycleStartDay } = useData();
-  const cycle = getCurrentFinancialMonth(new Date(), cycleStartDay);
 
-  // Cycle key for snapshot: "YYYY-MM" based on cycle's start date
-  const cycleKey = cycle.startDate.slice(0, 7);
+  const cycle = useMemo(() => getFinancialCycle(new Date(), cycleStartDay), [cycleStartDay]);
+  const cycleKey = cycle.cycleKey;
+  const cycleInfo = useMemo(() => getCycleDayInfo(cycle), [cycle]);
 
-  // Budget limits per category — loaded from snapshot
-  const [limits, setLimits] = useState({});
+  // Budget limits per categoryId
+  const [limits, setLimits]               = useState({});   // { [categoryId]: number }
   const [snapshotLoading, setSnapshotLoading] = useState(true);
 
-  // Salary — stored in localStorage
+  // Salary
   const [salary, setSalary] = useState(() => {
     const saved = localStorage.getItem(SALARY_KEY);
     return saved ? parseFloat(saved) : 98000;
   });
-  const handleSalaryEdit = (val) => {
-    setSalary(val);
-    localStorage.setItem(SALARY_KEY, String(val));
-  };
+  const handleSalaryEdit = (val) => { setSalary(val); localStorage.setItem(SALARY_KEY, String(val)); };
 
   // Add Category UI
   const [showAddCat, setShowAddCat] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [newCatColor, setNewCatColor] = useState('#6366f1');
 
-  // Load snapshot for current cycle, falling back to previous cycle
+  // Load snapshot using subcollection structure, carry-forward from previous cycle
   useEffect(() => {
     let cancelled = false;
-    const loadSnapshot = async () => {
+    const load = async () => {
       setSnapshotLoading(true);
       try {
         let data = await budgetSnapshotsAPI.get(cycleKey);
         if (!data) {
-          // Try previous month as carry-forward
-          const prevDate = new Date(cycle.startDate);
-          prevDate.setMonth(prevDate.getMonth() - 1);
-          const prevKey = prevDate.toISOString().slice(0, 7);
-          data = await budgetSnapshotsAPI.get(prevKey);
+          // Try carry-forward from previous cycle
+          const prev = new Date(cycle.startDate);
+          prev.setMonth(prev.getMonth() - 1);
+          const prevKey = getFinancialCycle(prev, cycleStartDay).cycleKey;
+          await budgetSnapshotsAPI.carryForward(prevKey, cycleKey);
+          data = await budgetSnapshotsAPI.get(cycleKey);
         }
-        if (!cancelled) setLimits(data?.limits || {});
+        if (!cancelled) {
+          // Convert subcollection format { [catId]: { limit } } to { [catId]: number }
+          const limitMap = {};
+          if (data) {
+            Object.entries(data).forEach(([catId, doc]) => {
+              limitMap[catId] = typeof doc === 'object' ? (doc.limit ?? 0) : doc;
+            });
+          }
+          setLimits(limitMap);
+        }
       } catch (e) {
         console.error('Failed to load budget snapshot:', e);
       } finally {
         if (!cancelled) setSnapshotLoading(false);
       }
     };
-    loadSnapshot();
+    load();
     return () => { cancelled = true; };
-  }, [cycleKey]);
+  }, [cycleKey, cycleStartDay]);
 
-  // Save a limit for a category to the current cycle snapshot
-  const handleSaveLimit = useCallback(async (category, limit) => {
-    const updated = { ...limits, [category]: limit };
-    setLimits(updated);
+  // Save a limit for a specific category
+  const handleSaveLimit = useCallback(async (categoryId, limit) => {
+    setLimits(prev => ({ ...prev, [categoryId]: limit }));
     try {
-      await budgetSnapshotsAPI.save(cycleKey, updated);
-      toast.success('Budget limit saved for this cycle!');
+      await budgetSnapshotsAPI.setLimit(cycleKey, categoryId, limit);
+      toast.success('Budget limit saved!');
     } catch {
       toast.error('Failed to save budget limit');
     }
-  }, [cycleKey, limits]);
+  }, [cycleKey]);
 
-  // Add a new custom category
+  // Add Category
   const handleAddCategory = async () => {
     const name = newCatName.trim();
     if (!name) { toast.error('Category name is required'); return; }
@@ -229,36 +323,28 @@ export default function Budgets() {
     try {
       await categoriesAPI.create({ name, color: newCatColor });
       toast.success(`Category "${name}" added!`);
-      setNewCatName('');
-      setNewCatColor('#6366f1');
-      setShowAddCat(false);
-    } catch {
-      toast.error('Failed to add category');
-    }
+      setNewCatName(''); setNewCatColor('#6366f1'); setShowAddCat(false);
+    } catch { toast.error('Failed to add category'); }
   };
 
   const handleDeleteCategory = async (id, name) => {
-    if (!confirm(`Delete category "${name}"? This won't affect existing transactions.`)) return;
+    if (!confirm(`Delete category "${name}"? Existing transactions are unaffected.`)) return;
     try {
       await categoriesAPI.delete(id);
       toast.success(`Category "${name}" deleted`);
-    } catch {
-      toast.error('Failed to delete category');
-    }
+    } catch { toast.error('Failed to delete category'); }
   };
 
-  // Filter out Income from spending categories
   const spendingCategories = useMemo(() =>
-    categories.filter(c => c.name !== 'Income'),
-    [categories]
+    categories.filter(c => c.name !== 'Income'), [categories]
   );
 
-  // Spending per category in current cycle
   const cycleTransactions = useMemo(() =>
     allTransactions.filter(t => t.date >= cycle.startDate && t.date <= cycle.endDate),
     [allTransactions, cycle]
   );
 
+  // Spend map by category NAME
   const spendMap = useMemo(() => {
     const map = {};
     cycleTransactions.forEach(t => {
@@ -272,7 +358,7 @@ export default function Budgets() {
   const enriched = useMemo(() =>
     spendingCategories.map(cat => ({
       cat,
-      limit: limits[cat.name] || 0,
+      limit: limits[cat.id] || 0,
       spent: spendMap[cat.name] || 0,
     })),
     [spendingCategories, limits, spendMap]
@@ -281,6 +367,8 @@ export default function Budgets() {
   const totalBudgeted = enriched.reduce((s, b) => s + b.limit, 0);
   const totalSpent    = enriched.reduce((s, b) => s + b.spent, 0);
   const unbudgeted    = Math.max(0, salary - totalBudgeted);
+  const overBudgetCount = enriched.filter(b => b.limit > 0 && b.spent > b.limit).length;
+  const warnCount       = enriched.filter(b => b.limit > 0 && b.spent / b.limit >= 0.8 && b.spent <= b.limit).length;
 
   const textMain = isDark ? '#f3f4f6' : '#111827';
   const textSub  = isDark ? '#9ca3af' : '#6b7280';
@@ -293,15 +381,33 @@ export default function Budgets() {
       <div style={{ marginBottom: 22 }}>
         <h1 style={{ fontSize: 26, fontWeight: 800, color: textMain, margin: 0 }}>Budgets</h1>
         <p style={{ fontSize: 13, color: textSub, margin: '4px 0 0' }}>
-          {cycle.label} · {cycle.startDate} → {cycle.endDate} · Resets on {cycleStartDay}th
+          {cycle.label} · {cycle.startDate} → {cycle.endDate} · Day {cycleInfo.daysElapsed}/{cycleInfo.totalDays}
         </p>
       </div>
+
+      {/* ─── Alerts ─── */}
+      {overBudgetCount > 0 && (
+        <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <ExclamationTriangleIcon style={{ width: 16, height: 16, color: '#ef4444', flexShrink: 0 }} />
+          <p style={{ margin: 0, fontSize: 12, color: '#ef4444' }}>
+            <strong>{overBudgetCount} category{overBudgetCount > 1 ? 'ies are' : ' is'} over budget</strong> this cycle. Consider adjusting your spending.
+          </p>
+        </div>
+      )}
+      {warnCount > 0 && overBudgetCount === 0 && (
+        <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <ExclamationTriangleIcon style={{ width: 16, height: 16, color: '#f59e0b', flexShrink: 0 }} />
+          <p style={{ margin: 0, fontSize: 12, color: '#f59e0b' }}>
+            <strong>{warnCount} category{warnCount > 1 ? 'ies are' : ' is'} approaching the budget limit.</strong> Hover over cards to see predictions.
+          </p>
+        </div>
+      )}
 
       {/* ─── Cycle info banner ─── */}
       <div style={{ padding: '10px 14px', borderRadius: 12, background: isDark ? '#0c1824' : '#eff6ff', border: `1px solid ${isDark ? '#1e3a5f' : '#bfdbfe'}`, display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
         <InformationCircleIcon style={{ width: 16, height: 16, color: '#3b82f6', flexShrink: 0 }} />
         <p style={{ margin: 0, fontSize: 12, color: isDark ? '#93c5fd' : '#1e40af' }}>
-          <strong>Budget limits are saved per cycle.</strong> When a new cycle starts, your previous limits carry forward automatically. Change any limit and it will apply only to this cycle.
+          <strong>Budget limits are saved per cycle.</strong> Previous limits carry forward automatically. Hover over any card to see spend projections.
         </p>
       </div>
 
@@ -309,12 +415,13 @@ export default function Budgets() {
       <SalaryBanner salary={salary} onEdit={handleSalaryEdit} isDark={isDark} />
 
       {/* ─── Summary Cards ─── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 22 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 22 }}>
         {[
-          { label: 'Salary', val: fmt(salary), color: '#1abf94', icon: '💰' },
-          { label: 'Budgeted', val: fmt(totalBudgeted), color: '#3b82f6', icon: '📊' },
-          { label: 'Spent', val: fmt(totalSpent), color: '#ef4444', icon: '💸' },
-          { label: 'Unbudgeted', val: fmt(unbudgeted), color: '#f59e0b', icon: '🎯' },
+          { label: 'Salary',      val: fmt(salary),       color: '#1abf94', icon: '💰' },
+          { label: 'Budgeted',    val: fmt(totalBudgeted), color: '#3b82f6', icon: '📊' },
+          { label: 'Spent',       val: fmt(totalSpent),    color: '#ef4444', icon: '💸' },
+          { label: 'Unbudgeted',  val: fmt(unbudgeted),    color: '#f59e0b', icon: '🎯' },
+          { label: 'Over Budget', val: overBudgetCount,    color: overBudgetCount > 0 ? '#ef4444' : '#1abf94', icon: '🚨' },
         ].map(c => (
           <div key={c.label} className="glass-card" style={{ padding: '14px 16px' }}>
             <p style={{ fontSize: 11, fontWeight: 600, color: textSub, textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>{c.icon} {c.label}</p>
@@ -344,14 +451,9 @@ export default function Budgets() {
               <p style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 700, color: textMain }}>New Category</p>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                 <input
-                  type="text"
-                  value={newCatName}
-                  onChange={e => setNewCatName(e.target.value)}
+                  type="text" value={newCatName} onChange={e => setNewCatName(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleAddCategory(); if (e.key === 'Escape') setShowAddCat(false); }}
-                  placeholder="Category name..."
-                  className="input-field"
-                  style={{ flex: 1, minWidth: 140 }}
-                  autoFocus
+                  placeholder="Category name..." className="input-field" style={{ flex: 1, minWidth: 140 }} autoFocus
                 />
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {PRESET_COLORS.map(c => (
@@ -379,27 +481,21 @@ export default function Budgets() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
           {enriched.map(({ cat, limit, spent }) => (
-            <div key={cat.id || cat.name} style={{ position: 'relative' }}>
+            <div key={cat.id} style={{ position: 'relative' }}>
               <BudgetCard
-                cat={cat}
-                limit={limit}
-                spent={spent}
-                salary={salary}
-                isDark={isDark}
-                onSave={handleSaveLimit}
+                cat={cat} limit={limit} spent={spent} salary={salary}
+                isDark={isDark} onSave={handleSaveLimit} cycleInfo={cycleInfo}
               />
-              {/* Delete custom category button  */}
               <button
                 onClick={() => handleDeleteCategory(cat.id, cat.name)}
                 title="Remove category"
                 style={{
                   position: 'absolute', top: 8, right: 8, width: 22, height: 22,
                   border: 'none', borderRadius: 6, background: isDark ? '#1e2732' : '#fee2e2',
-                  color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  opacity: 0.6,
+                  color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.5,
                 }}
                 onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+                onMouseLeave={e => e.currentTarget.style.opacity = '0.5'}
               >
                 <TrashIcon style={{ width: 11, height: 11 }} />
               </button>
@@ -412,7 +508,7 @@ export default function Budgets() {
       <div style={{ marginTop: 20, padding: '12px 16px', borderRadius: 12, background: isDark ? '#0a0e14' : '#f0fdf9', border: `1px solid ${isDark ? '#1a2235' : '#a7f3d0'}`, display: 'flex', alignItems: 'center', gap: 10 }}>
         <SparklesIcon style={{ width: 16, height: 16, color: '#1abf94', flexShrink: 0 }} />
         <p style={{ margin: 0, fontSize: 12, color: textSub }}>
-          <strong style={{ color: '#1abf94' }}>Tip:</strong> Click "Set limit" on any category to track spending. Limits are saved per cycle and carry forward automatically each month.
+          <strong style={{ color: '#1abf94' }}>Tip:</strong> Hover over any budget card to see AI-powered spending projections for the rest of this cycle.
         </p>
       </div>
     </div>

@@ -58,7 +58,7 @@ app.use('/auth', require('./routes/authRoutes'));
 app.use('/accounts', require('./routes/accountRoutes'));
 app.use('/transactions', require('./routes/transactionRoutes'));
 app.use('/budgets', require('./routes/budgetRoutes'));
-app.use('/credit-cards', require('./routes/creditCardRoutes'));
+// app.use('/credit-cards', require('./routes/creditCardRoutes'));
 app.use('/investments', require('./routes/investmentRoutes'));
 app.use('/mutual-funds', require('./routes/mutualFundRoutes'));
 app.use('/goals', require('./routes/goalRoutes'));

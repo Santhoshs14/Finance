@@ -5,20 +5,18 @@ import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
 import TransactionTable from '../components/TransactionTable';
 import QuickAddTransaction from '../components/QuickAddTransaction';
-import { transactionsAPI, accountsAPI, importAPI } from '../services/api';
+import { transactionsAPI, importAPI } from '../services/api';
 import { getRecentFinancialMonths } from '../utils/financialMonth';
 import { PlusIcon, ArrowUpTrayIcon, TrashIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
 const fmt = (n) => '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n || 0);
 
-const FINANCIAL_MONTHS = getRecentFinancialMonths(8);
-
 export default function Transactions() {
   const { isDark } = useTheme();
   const queryClient = useQueryClient();
 
-  const [selectedCycle, setSelectedCycle] = useState(0); // index into FINANCIAL_MONTHS
+  const [selectedCycle, setSelectedCycle] = useState(0);
   const [showAdd, setShowAdd] = useState(false);
   const [editTxn, setEditTxn] = useState(null);
   const [showImport, setShowImport] = useState(false);
@@ -26,9 +24,11 @@ export default function Transactions() {
   const [importAccountId, setImportAccountId] = useState('');
   const [importPreview, setImportPreview] = useState(null);
 
-  const activeCycle = FINANCIAL_MONTHS[selectedCycle];
-  
   const { transactions: allTransactions, accounts, creditCards, categories, cycleStartDay } = useData();
+
+  // Recompute cycle list whenever cycleStartDay changes
+  const FINANCIAL_MONTHS = useMemo(() => getRecentFinancialMonths(8, new Date(), cycleStartDay), [cycleStartDay]);
+  const activeCycle = FINANCIAL_MONTHS[selectedCycle];
   const isLoading = false;
 
   const transactions = useMemo(() => {
@@ -46,7 +46,7 @@ export default function Transactions() {
     const totalIncome = transactions.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
     const catMap = {};
     transactions.forEach(t => { if (t.amount < 0 && t.category !== 'Income') catMap[t.category] = (catMap[t.category] || 0) + Math.abs(t.amount); });
-    const topCategory = Object.entries(catMap).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+    const topCategory = Object.entries(catMap).sort((a, b) => b[1] - a[1])[0]?.[0] || '\u2014';
     const days = [...new Set(transactions.filter(t => t.amount < 0).map(t => t.date))].length || 1;
     return { totalSpent, totalIncome, topCategory, dailyAvg: totalSpent / days, count: transactions.length };
   }, [transactions]);
@@ -65,19 +65,19 @@ export default function Transactions() {
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['transactions'] });
 
   const addMutation = useMutation({
-    mutationFn: (data) => transactionsAPI.create(data),
+    mutationFn: (data) => transactionsAPI.create(data, cycleStartDay),
     onSuccess: () => { toast.success('Transaction added!'); invalidate(); setShowAdd(false); setEditTxn(null); },
-    onError: () => toast.error('Failed to add transaction'),
+    onError: (e) => toast.error(e?.message || 'Failed to add transaction'),
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }) => transactionsAPI.update(id, data),
+    mutationFn: ({ id, data }) => transactionsAPI.update(id, data, cycleStartDay),
     onSuccess: () => { toast.success('Transaction updated!'); invalidate(); setShowAdd(false); setEditTxn(null); },
     onError: () => toast.error('Failed to update'),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => transactionsAPI.delete(id),
+    mutationFn: (id) => transactionsAPI.delete(id, cycleStartDay),
     onSuccess: () => { toast.success('Deleted'); invalidate(); },
     onError: () => toast.error('Failed to delete'),
   });
@@ -200,7 +200,7 @@ export default function Transactions() {
                     {daySpent > 0 && <span style={{ color: '#ef4444', fontWeight: 600 }}>-{fmt(daySpent)}</span>}
                   </div>
                 </div>
-                <TransactionTable transactions={dayTxns} onEdit={handleEdit} onDelete={handleDelete} />
+                <TransactionTable transactions={dayTxns} onEdit={handleEdit} onDelete={handleDelete} categories={categories} />
               </div>
             );
           })
@@ -211,14 +211,14 @@ export default function Transactions() {
       <AnimatePresence>
         {showAdd && (
           <QuickAddTransaction
-        isOpen={showAdd}
-        onClose={() => { setShowAdd(false); setEditTxn(null); }}
-        onSubmit={handleSubmit}
-        accounts={accounts}
-        creditCards={creditCards}
-        categories={categories}
-        initialData={editTxn}
-      />  )}
+          isOpen={showAdd}
+          onClose={() => { setShowAdd(false); setEditTxn(null); }}
+          onSubmit={handleSubmit}
+          accounts={accounts}
+          creditCards={creditCards}
+          categories={categories}
+          initialData={editTxn}
+        />)}
       </AnimatePresence>
 
       {/* ─── Import Modal ─── */}

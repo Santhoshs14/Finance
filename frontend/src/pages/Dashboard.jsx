@@ -1,17 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, AreaChart, Area,
 } from 'recharts';
 import CountUp from 'react-countup';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
-import { getShortFinancialMonthLabelForDate } from '../utils/financialMonth';
+import { getShortFinancialMonthLabelForDate, getFinancialCycle } from '../utils/financialMonth';
 import TransactionTable from '../components/TransactionTable';
 import QuickAddTransaction from '../components/QuickAddTransaction';
 import { useData } from '../context/DataContext';
-import { transactionsAPI, accountsAPI, calculationsAPI, insightsAPI, goalsAPI } from '../services/api';
+import { transactionsAPI, calculationsAPI, insightsAPI } from '../services/api';
 import {
   ArrowUpIcon, ArrowDownIcon, PlusIcon,
   ScaleIcon, BanknotesIcon, ChartBarIcon,
@@ -136,41 +136,77 @@ export default function Dashboard() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const { data: calculations = null } = useQuery({
-    queryKey: ['calculations'],
-    queryFn: async () => { try { const r = await calculationsAPI.get(); return r.data.data || {}; } catch { return null; } },
-  });
-  
-  const { transactions, accounts, goals, creditCards, cycleStartDay } = useData();
+  const { transactions, accounts, goals, creditCards, investments, lending, categories, cycleStartDay, currentAggregate } = useData();
   const txnLoading = false;
   const { data: snapshots = [] } = useQuery({
     queryKey: ['snapshots'],
     queryFn: async () => { try { const r = await calculationsAPI.getSnapshots(); return r.data.data || []; } catch { return []; } },
   });
-  const { data: insights = [] } = useQuery({
-    queryKey: ['insights'],
-    queryFn: async () => { try { const r = await insightsAPI.get(); return r.data.data?.insights || []; } catch { return []; } },
-  });
 
   const addTxnMutation = useMutation({
-    mutationFn: (data) => transactionsAPI.create(data),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['transactions'] }); queryClient.invalidateQueries({ queryKey: ['calculations'] }); },
+    mutationFn: (data) => transactionsAPI.create(data, cycleStartDay),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['transactions'] }); },
   });
 
-  /* ─── Computed ─── */
-  const netWorth    = calculations?.net_worth?.net_worth || 0;
-  const totalSavings = calculations?.total_savings || 0;          // Investment portfolio only
-  const totalLiabilities = calculations?.total_liabilities?.total || 0;
-  const income      = calculations?.savings_rate?.income || 0;
-  const expenses    = calculations?.savings_rate?.expenses || 0;
-  const savingsRate = calculations?.savings_rate?.savings_rate || 0;
+  /* ─── Computed from local data ─── */
+  const currentCycle = useMemo(() => getFinancialCycle(new Date(), cycleStartDay), [cycleStartDay]);
+
   const accountsBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
 
+  // Investment portfolio sum
+  const totalSavings = investments.reduce((s, inv) => {
+    const val = parseFloat(inv.current_value || inv.value || 0);
+    return s + val;
+  }, 0);
+
+  // Liabilities from credit cards + lending
+  const totalLiabilities = creditCards.reduce((s, cc) => s + parseFloat(cc.balance_due || 0), 0)
+    + lending.filter(l => l.type === 'borrowed').reduce((s, l) => s + parseFloat(l.amount || 0), 0);
+
+  const netWorth = accountsBalance + totalSavings - totalLiabilities;
+
+  // Income/expense from current cycle
+  const cycleTxns = useMemo(() =>
+    transactions.filter(t => t.date >= currentCycle.startDate && t.date <= currentCycle.endDate),
+    [transactions, currentCycle]
+  );
+
+  const income   = cycleTxns.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+  const expenses = cycleTxns.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
+  const savingsRate = income > 0 ? ((income - expenses) / income * 100) : 0;
+
+  // Budget progress from currentAggregate
+  const budgetUsage = useMemo(() => {
+    const breakdown = currentAggregate?.categoryBreakdown || {};
+    return Object.entries(breakdown)
+      .filter(([cat]) => cat !== 'Income')
+      .map(([cat, spent]) => ({ category: cat, spent, monthly_limit: 0 }))
+      .sort((a, b) => b.spent - a.spent)
+      .slice(0, 5);
+  }, [currentAggregate]);
+
+  // Local insights from cycle data
+  const insights = useMemo(() => {
+    const list = [];
+    if (expenses > income * 0.9 && income > 0)
+      list.push({ type: 'warning', message: `You've spent ${((expenses/income)*100).toFixed(0)}% of your cycle income. Watch your spending.` });
+    if (savingsRate > 30)
+      list.push({ type: 'positive', message: `Great savings rate of ${savingsRate.toFixed(1)}% this cycle! Keep it up.` });
+    const topCat = Object.entries(currentAggregate?.categoryBreakdown || {}).sort((a,b) => b[1]-a[1])[0];
+    if (topCat && topCat[0] !== 'Income')
+      list.push({ type: 'info', message: `Your top spending category this cycle is ${topCat[0]} at ₹${topCat[1].toLocaleString('en-IN')}.` });
+    if (accounts.some(a => a.balance < 1000))
+      list.push({ type: 'warning', message: 'One or more accounts have a low balance. Consider a top-up.' });
+    return list;
+  }, [expenses, income, savingsRate, currentAggregate, accounts]);
+
+  /* ─── Chart data ─── */
   const categoryData = transactions.reduce((acc, txn) => {
     if (txn.category !== 'Income' && txn.amount < 0) {
       const ex = acc.find(i => i.name === txn.category);
+      const col = categories.find(c => c.name === txn.category)?.color || '#94a3b8';
       if (ex) ex.value += Math.abs(txn.amount);
-      else acc.push({ name: txn.category, value: Math.abs(txn.amount) });
+      else acc.push({ name: txn.category, value: Math.abs(txn.amount), color: col });
     }
     return acc;
   }, []).sort((a, b) => b.value - a.value);
@@ -240,12 +276,12 @@ export default function Dashboard() {
           ) : <div style={{ textAlign: 'center', padding: '48px 0', color: textSub }}>No spending data yet</div>}
         </motion.div>
 
-        {/* Budget Progress */}
+        {/* Budget Progress — from aggregates */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className="glass-card" style={{ padding: 24 }}>
           <span style={{ fontSize: 15, fontWeight: 600, color: textMain, display: 'block', marginBottom: 16 }}>Budget Progress</span>
-          {calculations?.budget_usage?.filter(b => b.monthly_limit > 0).length > 0 ? (
-            calculations.budget_usage.filter(b => b.monthly_limit > 0).slice(0, 5).map((b, i) => (
-              <SavingsBar key={i} label={b.category} current={b.spent} total={b.monthly_limit} isDark={isDark} />
+          {budgetUsage.filter(b => b.spent > 0).length > 0 ? (
+            budgetUsage.filter(b => b.spent > 0).map((b, i) => (
+              <SavingsBar key={i} label={b.category} current={b.spent} total={b.monthly_limit || b.spent * 1.5} isDark={isDark} />
             ))
           ) : <div style={{ textAlign: 'center', padding: '40px 0', color: textSub }}>Set budgets to track spending</div>}
         </motion.div>
@@ -317,7 +353,7 @@ export default function Dashboard() {
               <PlusIcon style={{ width: 14, height: 14 }} /> Add
             </button>
           </div>
-          <TransactionTable transactions={transactions.slice(0, 6)} />
+          <TransactionTable transactions={transactions.slice(0, 6)} categories={categories} />
         </motion.div>
       </div>
 

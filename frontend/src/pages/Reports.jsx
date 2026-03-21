@@ -1,104 +1,150 @@
 import { useState, useMemo, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
 import ChartCard from '../components/ChartCard';
 import { budgetSnapshotsAPI } from '../services/api';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { DocumentArrowDownIcon, ChartPieIcon, ScaleIcon } from '@heroicons/react/24/outline';
+import { getFinancialCycle, getRecentFinancialMonths, getCycleDayInfo } from '../utils/financialMonth';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  LineChart, Line,
+} from 'recharts';
+import {
+  DocumentArrowDownIcon, ChartPieIcon, ScaleIcon,
+  ArrowTrendingUpIcon, ArrowTrendingDownIcon, FireIcon, SparklesIcon,
+} from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
+
+const fmt = (n) => '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n || 0);
+
+const CHART_COLORS = ['#6366f1','#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#f97316','#84cc16'];
 
 export default function Reports() {
   const { isDark } = useTheme();
-  const { transactions, categories } = useData();
-  const [tab, setTab] = useState('monthly');
-  const [month, setMonth] = useState(new Date().getMonth() + 1);
-  const [year, setYear] = useState(new Date().getFullYear());
+  const { transactions, categories, cycleStartDay } = useData();
+  const [tab, setTab] = useState('cycle');
+  const [selectedCycleIdx, setSelectedCycleIdx] = useState(0);
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [budgetLimits, setBudgetLimits] = useState({});
+  const [budgetLimits, setBudgetLimits] = useState({}); // { [categoryId]: number }
 
-  // Load budget snapshot for selected month
+  const recentCycles = useMemo(() => getRecentFinancialMonths(12, new Date(), cycleStartDay), [cycleStartDay]);
+  const selectedCycle = recentCycles[selectedCycleIdx];
+
+  // Load budget snapshot for selected cycle
   useEffect(() => {
-    if (tab !== 'monthly') return;
-    const cycleKey = `${year}-${String(month).padStart(2, '0')}`;
-    budgetSnapshotsAPI.get(cycleKey)
-      .then(data => setBudgetLimits(data?.limits || {}))
+    if (!selectedCycle) return;
+    budgetSnapshotsAPI.get(selectedCycle.cycleKey)
+      .then(data => {
+        if (!data) { setBudgetLimits({}); return; }
+        // data = { [catId]: { limit, categoryId, ... } }
+        const mapped = {};
+        Object.entries(data).forEach(([catId, doc]) => {
+          mapped[catId] = typeof doc === 'object' ? (doc.limit ?? 0) : doc;
+        });
+        setBudgetLimits(mapped);
+      })
       .catch(() => setBudgetLimits({}));
-  }, [month, year, tab]);
+  }, [selectedCycle]);
+
+  // Helper — get category name from id
+  const getCatName = (id) => categories.find(c => c.id === id)?.name || id;
+  const getCatColor = (name) => categories.find(c => c.name === name)?.color || '#94a3b8';
+
+  const ts = {
+    contentStyle: {
+      backgroundColor: isDark ? '#1e293b' : '#fff',
+      border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+      borderRadius: '12px',
+      fontSize: '12px',
+    },
+  };
 
   const calculateReport = () => {
     setLoading(true);
-    // Simulate a small delay for better UX
     setTimeout(() => {
       try {
-        if (tab === 'monthly') {
-          const filtered = transactions.filter(t => {
-            const d = new Date(t.date);
-            return (d.getMonth() + 1) === month && d.getFullYear() === year;
-          });
+        if (tab === 'cycle') {
+          const cycle = selectedCycle;
+          const filtered = transactions.filter(t => t.date >= cycle.startDate && t.date <= cycle.endDate);
 
-          let totalIncome = 0;
-          let totalExpense = 0;
+          let totalIncome = 0, totalExpense = 0;
           const categoryBreakdown = {};
-
           filtered.forEach(t => {
             const amt = Math.abs(t.amount);
-            if (t.category === 'Income' || t.amount > 0) {
-              totalIncome += amt;
-            } else {
-              totalExpense += amt;
-            }
-
-            if (!categoryBreakdown[t.category]) {
-              categoryBreakdown[t.category] = { total: 0, count: 0 };
-            }
+            if (t.category === 'Income' || t.amount > 0) totalIncome += amt;
+            else totalExpense += amt;
+            if (!categoryBreakdown[t.category]) categoryBreakdown[t.category] = { total: 0, count: 0 };
             categoryBreakdown[t.category].total += amt;
             categoryBreakdown[t.category].count += 1;
           });
 
+          // Compute trends: last 6 cycles per category
+          const last6 = recentCycles.slice(0, 6);
+          const categoryTrend = {};
+          last6.forEach(cyc => {
+            const txns = transactions.filter(t => t.date >= cyc.startDate && t.date <= cyc.endDate && t.amount < 0 && t.category !== 'Income');
+            const top5 = Object.entries(categoryBreakdown)
+              .filter(([n]) => n !== 'Income')
+              .sort((a, b) => b[1].total - a[1].total)
+              .slice(0, 5)
+              .map(([n]) => n);
+            top5.forEach(catName => {
+              if (!categoryTrend[catName]) categoryTrend[catName] = [];
+              const spent = txns.filter(t => t.category === catName).reduce((s, t) => s + Math.abs(t.amount), 0);
+              categoryTrend[catName].push({ label: cyc.label.split(' ')[0], spent });
+            });
+          });
+
+          // Previous cycle comparison
+          const prevCycle = recentCycles[1];
+          const prevFiltered = prevCycle
+            ? transactions.filter(t => t.date >= prevCycle.startDate && t.date <= prevCycle.endDate && t.amount < 0)
+            : [];
+          const prevCatMap = {};
+          prevFiltered.forEach(t => { prevCatMap[t.category] = (prevCatMap[t.category] || 0) + Math.abs(t.amount); });
+
+          // Most improved: biggest reduction vs previous cycle
+          let mostImproved = { name: null, saving: 0 };
+          Object.entries(prevCatMap).forEach(([cat, prevAmt]) => {
+            const currAmt = categoryBreakdown[cat]?.total || 0;
+            const saving = prevAmt - currAmt;
+            if (saving > mostImproved.saving) mostImproved = { name: cat, saving };
+          });
+
           setReport({
             total_transactions: filtered.length,
             total_income: totalIncome,
             total_expense: totalExpense,
             savings_rate: totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome * 100).toFixed(1) : 0,
-            category_breakdown: categoryBreakdown
+            category_breakdown: categoryBreakdown,
+            category_trend: categoryTrend,
+            most_improved: mostImproved,
+            prev_cat_map: prevCatMap,
           });
+
         } else {
           // Yearly
+          const year = new Date().getFullYear();
           const filtered = transactions.filter(t => new Date(t.date).getFullYear() === year);
-          let totalIncome = 0;
-          let totalExpense = 0;
+          let totalIncome = 0, totalExpense = 0;
           const monthlyBreakdown = {};
-
-          // Initialize all months
-          for (let i = 1; i <= 12; i++) {
-            monthlyBreakdown[i] = { income: 0, expense: 0 };
-          }
-
+          for (let i = 1; i <= 12; i++) monthlyBreakdown[i] = { income: 0, expense: 0 };
           filtered.forEach(t => {
-            const d = new Date(t.date);
-            const m = d.getMonth() + 1;
+            const m = new Date(t.date).getMonth() + 1;
             const amt = Math.abs(t.amount);
-
-            if (t.category === 'Income' || t.amount > 0) {
-              totalIncome += amt;
-              monthlyBreakdown[m].income += amt;
-            } else {
-              totalExpense += amt;
-              monthlyBreakdown[m].expense += amt;
-            }
+            if (t.category === 'Income' || t.amount > 0) { totalIncome += amt; monthlyBreakdown[m].income += amt; }
+            else { totalExpense += amt; monthlyBreakdown[m].expense += amt; }
           });
-
           setReport({
             total_transactions: filtered.length,
             total_income: totalIncome,
             total_expense: totalExpense,
             savings_rate: totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome * 100).toFixed(1) : 0,
-            monthly_breakdown: monthlyBreakdown
+            monthly_breakdown: monthlyBreakdown,
           });
         }
-        toast.success(`${tab.charAt(0).toUpperCase() + tab.slice(1)} report generated!`);
+        toast.success('Report generated!');
       } catch (err) {
         toast.error('Failed to generate report');
         console.error(err);
@@ -107,120 +153,118 @@ export default function Reports() {
     }, 500);
   };
 
-  const exportPDF = () => {
-    toast.error('PDF Export requires backend server configuration. Displaying data on screen instead.');
-  };
-
+  // Derived display data
   const categoryData = useMemo(() => {
     if (!report?.category_breakdown) return [];
     return Object.entries(report.category_breakdown)
-      .map(([name, d]) => ({ name, total: d.total, count: d.count }))
+      .map(([name, d]) => ({ name, total: d.total, count: d.count, color: getCatColor(name) }))
       .sort((a, b) => b.total - a.total);
-  }, [report]);
+  }, [report, categories]);
 
-  const monthlyBreakdownData = useMemo(() => {
+  const monthlyData = useMemo(() => {
     if (!report?.monthly_breakdown) return [];
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return Object.entries(report.monthly_breakdown)
-      .map(([m, d]) => ({ 
-        month: months[parseInt(m) - 1], 
-        income: d.income, 
-        expense: d.expense 
-      }));
+      .map(([m, d]) => ({ month: months[parseInt(m) - 1], income: d.income, expense: d.expense }));
   }, [report]);
 
-  const ts = {
-    contentStyle: {
-      backgroundColor: isDark ? '#1e293b' : '#fff',
-      border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
-      borderRadius: '12px',
-      fontSize: '12px'
-    }
-  };
+  // Budget vs Actual table data
+  const budgetVsActual = useMemo(() => {
+    return categoryData.filter(r => r.name !== 'Income').map(row => {
+      // Try to find limit by category name matching category id
+      const cat = categories.find(c => c.name === row.name);
+      const budgeted = cat && budgetLimits[cat.id] ? budgetLimits[cat.id] : 0;
+      const diff = budgeted > 0 ? budgeted - row.total : null;
+      const over = diff !== null && diff < 0;
+      const pct = budgeted > 0 ? (row.total / budgeted * 100) : null;
+      const statusColor = budgeted === 0 ? '#64748b' : over ? '#ef4444' : diff / budgeted < 0.2 ? '#f59e0b' : '#10b981';
+      const statusLabel = budgeted === 0 ? '—' : over ? 'Over' : diff / budgeted < 0.2 ? 'Near' : 'Safe';
+      return { ...row, budgeted, diff, over, pct, statusColor, statusLabel };
+    });
+  }, [categoryData, budgetLimits, categories]);
+
+  // Top overspent: highest pct over budget
+  const topOverspent = useMemo(() => {
+    return budgetVsActual.filter(r => r.over).sort((a, b) => a.diff - b.diff)[0] || null;
+  }, [budgetVsActual]);
+
+  // Category trend chart data
+  const trendChartData = useMemo(() => {
+    if (!report?.category_trend) return [];
+    const allLabels = [...new Set(
+      Object.values(report.category_trend).flat().map(d => d.label)
+    )].reverse();
+    return allLabels.map(label => {
+      const point = { label };
+      Object.entries(report.category_trend).forEach(([cat, series]) => {
+        const found = series.find(d => d.label === label);
+        point[cat] = found?.spent || 0;
+      });
+      return point;
+    });
+  }, [report]);
+
+  const trendCategories = useMemo(() =>
+    report?.category_trend ? Object.keys(report.category_trend) : [],
+    [report]
+  );
+
+  const textMain = isDark ? '#f3f4f6' : '#111827';
+  const textSub  = isDark ? '#9ca3af' : '#6b7280';
 
   return (
     <div className="pb-10">
+      {/* ─── Header ─── */}
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Reports</h1>
-          <p className={`mt-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Visual insights and financial summaries</p>
+          <p className={`mt-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Financial insights across your spending cycles</p>
         </div>
-        {report && (
-          <motion.button 
-            whileTap={{ scale: 0.95 }} 
-            onClick={exportPDF} 
-            className="btn-secondary flex items-center gap-2 text-sm"
-          >
-            <DocumentArrowDownIcon className="w-5 h-5 text-primary-500" /> Save as PDF
-          </motion.button>
-        )}
       </div>
 
-      <div className="glass-card p-6 mb-8 group hover:border-primary-500/30 transition-all">
+      {/* ─── Controls ─── */}
+      <div className="glass-card p-6 mb-8">
         <div className="flex flex-wrap gap-5 items-end">
-          <div className="flex p-1 bg-dark-100 dark:bg-dark-800 rounded-xl">
-            {['monthly', 'yearly'].map(t => (
-              <button 
-                key={t} 
-                onClick={() => { setTab(t); setReport(null); }} 
+          <div className="flex p-1 rounded-xl" style={{ background: isDark ? '#1a2235' : '#f1f5f9' }}>
+            {[['cycle','Cycle Report'], ['yearly','Yearly']].map(([t, label]) => (
+              <button key={t} onClick={() => { setTab(t); setReport(null); }}
                 className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${tab === t ? 'bg-white dark:bg-dark-700 text-primary-600 shadow-sm' : 'text-dark-500 hover:text-dark-700 dark:hover:text-dark-300'}`}
-              >
-                {t.charAt(0).toUpperCase() + t.slice(1)}
-              </button>
+              >{label}</button>
             ))}
           </div>
-          
-          <div className="flex gap-3 items-center">
-            {tab === 'monthly' && (
-              <select 
-                value={month} 
-                onChange={e => { setMonth(parseInt(e.target.value)); setReport(null); }} 
-                className="input-field w-32 font-medium"
-              >
-                {['January','February','March','April','May','June','July','August','September','October','November','December']
-                  .map((m, i) => <option key={i} value={i+1}>{m}</option>)}
-              </select>
-            )}
-            <input 
-              type="number" 
-              value={year} 
-              onChange={e => { setYear(parseInt(e.target.value)); setReport(null); }} 
-              className="input-field w-24 font-bold text-center" 
-              min="2020" max="2030" 
-            />
-          </div>
 
-          <button 
-            onClick={calculateReport} 
-            disabled={loading} 
-            className="btn-primary px-8 flex items-center gap-2"
-          >
-            {loading ? (
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            ) : (
-              <ChartPieIcon className="w-5 h-5" />
-            )}
+          {tab === 'cycle' && (
+            <select value={selectedCycleIdx} onChange={e => { setSelectedCycleIdx(Number(e.target.value)); setReport(null); }}
+              className="input-field" style={{ minWidth: 180 }}>
+              {recentCycles.map((c, i) => (
+                <option key={c.cycleKey} value={i}>{c.label}{i === 0 ? ' (Current)' : ''}</option>
+              ))}
+            </select>
+          )}
+
+          <button onClick={calculateReport} disabled={loading} className="btn-primary px-8 flex items-center gap-2">
+            {loading
+              ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              : <ChartPieIcon className="w-5 h-5" />}
             {loading ? 'Processing...' : 'Generate Report'}
           </button>
         </div>
       </div>
 
+      {/* ─── Report content ─── */}
       {report ? (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+
+          {/* KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             {[
-              { label: 'Transactions', value: report.total_transactions, color: 'text-primary-500', icon: '📝' },
-              { label: 'Income', value: `₹${report.total_income.toLocaleString('en-IN')}`, color: 'text-success-500', icon: '📈' },
-              { label: 'Expenses', value: `₹${report.total_expense.toLocaleString('en-IN')}`, color: 'text-danger-500', icon: '📉' },
-              { label: 'Savings Rate', value: `${report.savings_rate}%`, color: 'text-warning-500', icon: '🎯' }
+              { label: 'Transactions', value: report.total_transactions, color: 'text-primary-500',  icon: '📝' },
+              { label: 'Income',       value: fmt(report.total_income),  color: 'text-success-500', icon: '📈' },
+              { label: 'Expenses',     value: fmt(report.total_expense), color: 'text-danger-500',  icon: '📉' },
+              { label: 'Savings Rate', value: `${report.savings_rate}%`, color: 'text-warning-500', icon: '🎯' },
             ].map((s, i) => (
-              <motion.div 
-                key={i} 
-                initial={{ opacity: 0, y: 10 }} 
-                animate={{ opacity: 1, y: 0 }} 
-                transition={{ delay: i * 0.05 }} 
-                className="glass-card p-5 border-l-4 border-l-primary-500/20"
-              >
+              <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+                className="glass-card p-5 border-l-4 border-l-primary-500/20">
                 <div className="flex justify-between items-start mb-2">
                   <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>{s.label}</span>
                   <span className="text-xl">{s.icon}</span>
@@ -230,29 +274,70 @@ export default function Reports() {
             ))}
           </div>
 
+          {/* Intelligence Cards (cycle mode only) */}
+          {tab === 'cycle' && (topOverspent || report.most_improved?.name) && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 24 }}>
+              {topOverspent && (
+                <div style={{ padding: '14px 16px', borderRadius: 14, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: '#ef444422', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <FireIcon style={{ width: 18, height: 18, color: '#ef4444' }} />
+                  </div>
+                  <div>
+                    <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Top Overspent</p>
+                    <p style={{ margin: '3px 0 0', fontSize: 16, fontWeight: 800, color: textMain }}>{topOverspent.name}</p>
+                    <p style={{ margin: '2px 0 0', fontSize: 12, color: textSub }}>
+                      {fmt(topOverspent.total)} spent · Budget: {fmt(topOverspent.budgeted)} · <span style={{ color: '#ef4444', fontWeight: 700 }}>{Math.abs(topOverspent.diff) > 0 ? fmt(Math.abs(topOverspent.diff)) + ' over' : 'At limit'}</span>
+                    </p>
+                  </div>
+                </div>
+              )}
+              {report.most_improved?.name && (
+                <div style={{ padding: '14px 16px', borderRadius: 14, background: 'rgba(26,191,148,0.08)', border: '1px solid rgba(26,191,148,0.25)', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: '#1abf9422', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <ArrowTrendingDownIcon style={{ width: 18, height: 18, color: '#1abf94' }} />
+                  </div>
+                  <div>
+                    <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#1abf94', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Most Improved</p>
+                    <p style={{ margin: '3px 0 0', fontSize: 16, fontWeight: 800, color: textMain }}>{report.most_improved.name}</p>
+                    <p style={{ margin: '2px 0 0', fontSize: 12, color: textSub }}>
+                      Saved <span style={{ color: '#1abf94', fontWeight: 700 }}>{fmt(report.most_improved.saving)}</span> vs previous cycle
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {tab === 'monthly' && categoryData.length > 0 && (
+            {/* Spending by Category */}
+            {tab === 'cycle' && categoryData.length > 0 && (
               <ChartCard title="Spending by Category" className="shadow-lg h-[400px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={categoryData} layout="vertical" margin={{ left: 20, right: 30, top: 10, bottom: 10 }}>
+                  <BarChart data={categoryData.filter(d => d.name !== 'Income')} layout="vertical" margin={{ left: 20, right: 30, top: 10, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={isDark ? '#334155' : '#e2e8f0'} />
                     <XAxis type="number" hide />
-                    <YAxis type="category" dataKey="name" width={80} axisLine={false} tickLine={false} tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12, fontWeight: 600 }} />
-                    <Tooltip formatter={v => `₹${v.toLocaleString('en-IN')}`} {...ts} cursor={{ fill: 'rgba(99, 102, 241, 0.05)' }} />
-                    <Bar dataKey="total" fill="#6366f1" radius={[0, 10, 10, 0]} barSize={24}></Bar>
+                    <YAxis type="category" dataKey="name" width={90} axisLine={false} tickLine={false}
+                      tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12, fontWeight: 600 }} />
+                    <Tooltip formatter={v => fmt(v)} {...ts} cursor={{ fill: 'rgba(99,102,241,0.05)' }} />
+                    <Bar dataKey="total" radius={[0, 10, 10, 0]} barSize={22}>
+                      {categoryData.filter(d => d.name !== 'Income').map((entry, index) => (
+                        <rect key={index} fill={entry.color || CHART_COLORS[index % CHART_COLORS.length]} />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </ChartCard>
             )}
 
-            {/* ─── Budget vs Actual Table ─── */}
-            {tab === 'monthly' && categoryData.length > 0 && (
+            {/* Budget vs Actual */}
+            {tab === 'cycle' && budgetVsActual.length > 0 && (
               <ChartCard title={<span className="flex items-center gap-2"><ScaleIcon className="w-4 h-4 text-primary-500" /> Budget vs Actual</span>} className="shadow-lg">
                 <div className="overflow-x-auto">
                   <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 6px' }}>
                     <thead>
                       <tr>
-                        {['Category', 'Budget', 'Spent', 'Difference', 'Status'].map(h => (
+                        {['Category','Budget','Spent','Difference','Status'].map(h => (
                           <th key={h} style={{ textAlign: h === 'Category' ? 'left' : 'right', fontSize: 11, fontWeight: 700, color: isDark ? '#64748b' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', paddingBottom: 8, paddingLeft: h === 'Category' ? 0 : 8 }}>
                             {h}
                           </th>
@@ -260,71 +345,98 @@ export default function Reports() {
                       </tr>
                     </thead>
                     <tbody>
-                      {categoryData.filter(r => r.name !== 'Income').map((row, i) => {
-                        const budgeted = budgetLimits[row.name] || 0;
-                        const spent = row.total;
-                        const diff = budgeted > 0 ? budgeted - spent : null;
-                        const over = diff !== null && diff < 0;
-                        const statusColor = budgeted === 0 ? '#64748b' : over ? '#ef4444' : diff / budgeted < 0.2 ? '#f59e0b' : '#10b981';
-                        const statusLabel = budgeted === 0 ? '—' : over ? 'Over' : diff / budgeted < 0.2 ? 'Near' : 'OK';
-                        return (
-                          <tr key={row.name}>
-                            <td style={{ fontSize: 13, fontWeight: 600, paddingTop: 6, paddingBottom: 6, color: isDark ? '#e2e8f0' : '#1e293b' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
-                                {row.name}
-                              </div>
-                            </td>
-                            <td style={{ textAlign: 'right', fontSize: 13, paddingLeft: 8, color: isDark ? '#94a3b8' : '#64748b' }}>
-                              {budgeted > 0 ? `₹${budgeted.toLocaleString('en-IN')}` : '—'}
-                            </td>
-                            <td style={{ textAlign: 'right', fontSize: 13, fontWeight: 700, paddingLeft: 8, color: '#ef4444' }}>
-                              ₹{spent.toLocaleString('en-IN')}
-                            </td>
-                            <td style={{ textAlign: 'right', fontSize: 13, fontWeight: 700, paddingLeft: 8, color: diff !== null ? (over ? '#ef4444' : '#10b981') : '#64748b' }}>
-                              {diff !== null ? `${over ? '-' : '+'}₹${Math.abs(diff).toLocaleString('en-IN')}` : '—'}
-                            </td>
-                            <td style={{ textAlign: 'right', paddingLeft: 8 }}>
-                              <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 700, background: `${statusColor}22`, color: statusColor }}>
-                                {statusLabel}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {budgetVsActual.map((row, i) => (
+                        <tr key={row.name}>
+                          <td style={{ fontSize: 13, fontWeight: 600, paddingTop: 6, paddingBottom: 6, color: isDark ? '#e2e8f0' : '#1e293b' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ width: 8, height: 8, borderRadius: '50%', background: row.color || row.statusColor, flexShrink: 0 }} />
+                              {row.name}
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'right', fontSize: 13, paddingLeft: 8, color: isDark ? '#94a3b8' : '#64748b' }}>
+                            {row.budgeted > 0 ? fmt(row.budgeted) : '—'}
+                          </td>
+                          <td style={{ textAlign: 'right', fontSize: 13, fontWeight: 700, paddingLeft: 8, color: '#ef4444' }}>
+                            {fmt(row.total)}
+                          </td>
+                          <td style={{ textAlign: 'right', fontSize: 13, fontWeight: 700, paddingLeft: 8, color: row.diff !== null ? (row.over ? '#ef4444' : '#10b981') : '#64748b' }}>
+                            {row.diff !== null ? `${row.over ? '-' : '+'}${fmt(Math.abs(row.diff))}` : '—'}
+                          </td>
+                          <td style={{ textAlign: 'right', paddingLeft: 8 }}>
+                            <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 700, background: `${row.statusColor}22`, color: row.statusColor }}>
+                              {row.statusLabel}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                   {Object.keys(budgetLimits).length === 0 && (
                     <p style={{ textAlign: 'center', fontSize: 12, padding: '12px 0 4px', color: isDark ? '#64748b' : '#94a3b8' }}>
-                      No budget limits set for this month. Set limits in the Budgets page.
+                      No budget limits set. Set limits in the Budgets page.
                     </p>
                   )}
                 </div>
               </ChartCard>
             )}
 
-            {tab === 'yearly' && monthlyBreakdownData.length > 0 && (
+            {/* Category Trend Chart (last 6 cycles) */}
+            {tab === 'cycle' && trendChartData.length > 0 && trendCategories.length > 0 && (
+              <ChartCard title={<span className="flex items-center gap-2"><ArrowTrendingUpIcon className="w-4 h-4 text-primary-500" /> Category Trend (6 Cycles)</span>} className="shadow-lg h-[320px] lg:col-span-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={trendChartData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? '#334155' : '#e2e8f0'} />
+                    <XAxis dataKey="label" axisLine={false} tickLine={false}
+                      tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 11, fontWeight: 700 }} />
+                    <YAxis axisLine={false} tickLine={false}
+                      tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 10 }}
+                      tickFormatter={v => `₹${v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}`} />
+                    <Tooltip formatter={v => fmt(v)} {...ts} />
+                    <Legend />
+                    {trendCategories.map((cat, i) => (
+                      <Line
+                        key={cat}
+                        type="monotone"
+                        dataKey={cat}
+                        stroke={getCatColor(cat) || CHART_COLORS[i % CHART_COLORS.length]}
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        activeDot={{ r: 5 }}
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            )}
+
+            {/* Yearly breakdown */}
+            {tab === 'yearly' && monthlyData.length > 0 && (
               <ChartCard title="Cash Flow Breakdown" className="shadow-lg h-[400px] lg:col-span-2">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={monthlyBreakdownData} margin={{ top: 20, right: 30, left: 10, bottom: 10 }}>
+                  <BarChart data={monthlyData} margin={{ top: 20, right: 30, left: 10, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? '#334155' : '#e2e8f0'} />
-                    <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12, fontWeight: 700 }} />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 11 }} tickFormatter={v => `₹${v/1000}k`} />
-                    <Tooltip formatter={v => `₹${v.toLocaleString('en-IN')}`} {...ts} cursor={{ fill: 'rgba(99, 102, 241, 0.05)' }} />
-                    <Bar dataKey="income" fill="#10b981" radius={[6, 6, 0, 0]} barSize={16} />
-                    <Bar dataKey="expense" fill="#ef4444" radius={[6, 6, 0, 0]} barSize={16} />
+                    <XAxis dataKey="month" axisLine={false} tickLine={false}
+                      tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12, fontWeight: 700 }} />
+                    <YAxis axisLine={false} tickLine={false}
+                      tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 11 }}
+                      tickFormatter={v => `₹${v / 1000}k`} />
+                    <Tooltip formatter={v => fmt(v)} {...ts} cursor={{ fill: 'rgba(99,102,241,0.05)' }} />
+                    <Legend />
+                    <Bar dataKey="income"  name="Income"  fill="#10b981" radius={[6,6,0,0]} barSize={16} />
+                    <Bar dataKey="expense" name="Expense" fill="#ef4444" radius={[6,6,0,0]} barSize={16} />
                   </BarChart>
                 </ResponsiveContainer>
               </ChartCard>
             )}
 
-            {tab === 'monthly' && categoryData.length === 0 && (
+            {/* Empty state */}
+            {tab === 'cycle' && categoryData.length === 0 && (
               <div className="glass-card flex flex-col items-center justify-center p-12 text-center lg:col-span-2">
                 <div className="w-16 h-16 bg-dark-100 dark:bg-dark-800 rounded-full flex items-center justify-center mb-4">
                   <ChartPieIcon className="w-8 h-8 text-dark-400" />
                 </div>
                 <h3 className="text-lg font-bold mb-2">No Data for this Period</h3>
-                <p className="text-dark-500 max-w-xs">We couldn't find any transactions for the selected month and year.</p>
+                <p className="text-dark-500 max-w-xs">No transactions found for the selected cycle.</p>
               </div>
             )}
           </div>
@@ -336,11 +448,10 @@ export default function Reports() {
           </div>
           <h2 className={`text-2xl font-black mb-3 ${isDark ? 'text-white' : 'text-dark-900'}`}>Ready to analyze?</h2>
           <p className={`text-dark-500 max-w-sm mb-8 ${isDark ? 'text-dark-400' : ''}`}>
-            Select a period and click "Generate Report" to see your financial health visualised with beautiful charts.
+            Select a financial cycle and click "Generate Report" to see spending insights, budget performance, and category trends.
           </p>
         </div>
       )}
     </div>
   );
 }
-

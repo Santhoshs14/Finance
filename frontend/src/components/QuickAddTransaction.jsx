@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
-import { XMarkIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
 const getLocalISODate = () => {
@@ -15,7 +15,6 @@ const defaultForm = {
   category: 'Food',
   payment_type: 'Cash',
   account_id: '',
-  credit_card_id: '',
   notes: '',
   is_recurring: false,
   recurrence_interval: 'monthly',
@@ -23,65 +22,109 @@ const defaultForm = {
 
 const today = new Date().toISOString().split('T')[0];
 
-export default function QuickAddTransaction({ isOpen, onClose, onSubmit, accounts = [], creditCards = [], categories = [], initialData = null }) {
+/* ─── Keyword → Category suggestion map ─── */
+const KEYWORD_MAP = [
+  { keywords: ['swiggy','zomato','mcdonalds','kfc','pizza','burger','eat','food','restaurant','cafe','lunch','dinner','breakfast','tiffin','biryani','hotel'], category: 'Food' },
+  { keywords: ['uber','ola','rapido','auto','cab','taxi','metro','bus','train','flight','petrol','diesel','fuel','toll','parkin'], category: 'Travel' },
+  { keywords: ['netflix','prime','hotstar','disney','spotify','youtube','zee5','subscription','plan','monthly'], category: 'Subscription' },
+  { keywords: ['amazon','flipkart','meesho','myntra','ajio','shop','buy','order','purchase','clothes','shoes'], category: 'Shopping' },
+  { keywords: ['rent','landlord','flat','apartment','lease','accommodation'], category: 'Rent' },
+  { keywords: ['electricity','water','bill','wifi','internet','broadband','phone','mobile','recharge','dth'], category: 'Bills' },
+  { keywords: ['movie','cinema','pvr','inox','concert','event','party','fun','outing','entertainment'], category: 'Entertainment' },
+  { keywords: ['salary','income','bonus','cashback','refund','dividend','freelance','payment received'], category: 'Income' },
+  { keywords: ['mutual fund','sip','stocks','shares','invest','zerodha','groww','upstox','gold','fd','fixed deposit'], category: 'Investment' },
+  { keywords: ['medicine','doctor','hospital','pharmacy','health','medical','pharma'], category: 'Utilities' },
+  { keywords: ['lend','loan','borrow','given','received'], category: 'Lending' },
+  { keywords: ['gift','present','wedding','anniversary','birthday'], category: 'Gifts' },
+  { keywords: ['grocery','vegetables','milk','dmart','bigbasket','jiomart','store'], category: 'Food' },
+  { keywords: ['petrol','fuel','pump','gas'], category: 'Petrol' },
+];
+
+/**
+ * Given notes text, return best-matching category name or null.
+ */
+const suggestCategory = (notes, categoriesAvail) => {
+  if (!notes || notes.trim().length < 2) return null;
+  const lower = notes.toLowerCase();
+  for (const entry of KEYWORD_MAP) {
+    if (entry.keywords.some(kw => lower.includes(kw))) {
+      // Verify the suggested category exists in user's categories
+      const exists = categoriesAvail.some(c => c.name === entry.category);
+      if (exists) return entry.category;
+    }
+  }
+  return null;
+};
+
+export default function QuickAddTransaction({
+  isOpen, onClose, onSubmit,
+  accounts = [], creditCards = [], categories = [], initialData = null,
+}) {
   const { isDark } = useTheme();
   const [form, setForm] = useState(defaultForm);
+  const [suggestion, setSuggestion] = useState(null); // suggested category name
 
-  // Pre-fill form when editing an existing transaction
+  // Pre-fill form when editing
   useEffect(() => {
     if (initialData) {
       setForm({
-        date: initialData.date || defaultForm.date,
-        amount: Math.abs(initialData.amount) || '',
-        category: initialData.category || 'Food',
-        payment_type: initialData.payment_type || 'Cash',
-        account_id: initialData.account_id || '',
-        credit_card_id: initialData.credit_card_id || '',
-        notes: initialData.notes || '',
-        is_recurring: initialData.is_recurring || false,
+        date:                initialData.date || defaultForm.date,
+        amount:              Math.abs(initialData.amount) || '',
+        category:            initialData.category || 'Food',
+        payment_type:        initialData.payment_type || 'Cash',
+        account_id:          initialData.account_id || initialData.credit_card_id || '',
+        notes:               initialData.notes || '',
+        is_recurring:        initialData.is_recurring || false,
         recurrence_interval: initialData.recurrence_interval || 'monthly',
       });
     } else {
       setForm(defaultForm);
     }
+    setSuggestion(null);
   }, [initialData, isOpen]);
 
-  // When payment type changes, reset associated selection
+  // Smart suggest on notes change
+  const handleNotesChange = (val) => {
+    setForm(prev => ({ ...prev, notes: val }));
+    const suggested = suggestCategory(val, categories);
+    if (suggested && suggested !== form.category) {
+      setSuggestion(suggested);
+    } else {
+      setSuggestion(null);
+    }
+  };
+
   const handlePaymentTypeChange = (newType) => {
     setForm(prev => ({
       ...prev,
       payment_type: newType,
-      account_id: newType === 'Credit Card' ? '' : prev.account_id,
-      credit_card_id: newType !== 'Credit Card' ? '' : prev.credit_card_id,
+      account_id: '',
     }));
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
 
-    // Block future dates
     if (form.date > today) {
       toast.error('Future dates are not allowed for transactions.');
       return;
     }
 
     const rawAmount = parseFloat(form.amount);
-    // Income category → positive, everything else → negative
+    if (isNaN(rawAmount) || rawAmount <= 0) {
+      toast.error('Amount must be a positive number.');
+      return;
+    }
+
     const signedAmount = form.category === 'Income' ? Math.abs(rawAmount) : -Math.abs(rawAmount);
     let submitData = { ...form, amount: signedAmount };
-
-    // Clean up unneeded field
-    if (form.payment_type === 'Credit Card') {
-      submitData.account_id = null;
-    } else {
-      submitData.credit_card_id = null;
-    }
+    delete submitData.credit_card_id; // Clean legacy field if exists
 
     if (submitData.is_recurring) {
       const d = new Date(submitData.date);
-      if (submitData.recurrence_interval === 'monthly') d.setMonth(d.getMonth() + 1);
-      else if (submitData.recurrence_interval === 'weekly') d.setDate(d.getDate() + 7);
-      else if (submitData.recurrence_interval === 'yearly') d.setFullYear(d.getFullYear() + 1);
+      if (submitData.recurrence_interval === 'monthly')  d.setMonth(d.getMonth() + 1);
+      else if (submitData.recurrence_interval === 'weekly')  d.setDate(d.getDate() + 7);
+      else if (submitData.recurrence_interval === 'yearly')  d.setFullYear(d.getFullYear() + 1);
       submitData.next_date = d.toISOString().split('T')[0];
     } else {
       delete submitData.recurrence_interval;
@@ -90,6 +133,7 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
 
     onSubmit(submitData);
     setForm(defaultForm);
+    setSuggestion(null);
     onClose();
   };
 
@@ -98,13 +142,11 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
   const isEdit = !!initialData;
   const paymentType = form.payment_type;
   const showCreditCardSelector = paymentType === 'Credit Card' && creditCards.length > 0;
-  const showAccountSelector = (paymentType === 'Debit Card' || paymentType === 'UPI') && accounts.length > 0;
+  const showAccountSelector    = (paymentType === 'Debit Card' || paymentType === 'UPI') && accounts.length > 0;
 
   const label = (text) => (
     <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4, color: isDark ? '#9ca3af' : '#6b7280' }}>{text}</label>
   );
-
-  const inputStyle = { width: '100%' };
 
   return (
     <motion.div
@@ -120,6 +162,7 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
         exit={{ opacity: 0, scale: 0.9, y: 20 }}
         onClick={(e) => e.stopPropagation()}
         className={`w-full max-w-md mx-4 rounded-2xl shadow-2xl p-6 ${isDark ? 'bg-dark-900 border border-dark-700' : 'bg-white border border-dark-200'}`}
+        style={{ maxHeight: '90vh', overflowY: 'auto' }}
       >
         <div className="flex justify-between items-center mb-5">
           <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>
@@ -134,18 +177,22 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
           <div className="grid grid-cols-2 gap-4">
             <div>
               {label('Date')}
-              <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="input-field" style={inputStyle} max={today} required />
+              <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
+                className="input-field" style={{ width: '100%' }} max={today} required />
             </div>
             <div>
               {label('Amount (₹)')}
-              <input type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="input-field" style={inputStyle} placeholder="0.00" required />
+              <input type="number" step="0.01" value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                className="input-field" style={{ width: '100%' }} placeholder="0.00" min="0.01" required />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
               {label('Category')}
-              <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="input-field" style={inputStyle}>
+              <select value={form.category} onChange={(e) => { setForm({ ...form, category: e.target.value }); setSuggestion(null); }}
+                className="input-field" style={{ width: '100%' }}>
                 {categories.length > 0
                   ? categories.map((c) => <option key={c.id || c.name} value={c.name}>{c.name}</option>)
                   : ['Food','Income','Other'].map(c => <option key={c} value={c}>{c}</option>)
@@ -154,7 +201,8 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
             </div>
             <div>
               {label('Payment Method')}
-              <select value={form.payment_type} onChange={(e) => handlePaymentTypeChange(e.target.value)} className="input-field" style={inputStyle}>
+              <select value={form.payment_type} onChange={(e) => handlePaymentTypeChange(e.target.value)}
+                className="input-field" style={{ width: '100%' }}>
                 <option value="Cash">💵 Cash</option>
                 <option value="Credit Card">💳 Credit Card</option>
                 <option value="Debit Card">🏦 Debit Card</option>
@@ -163,22 +211,14 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
             </div>
           </div>
 
-          {/* Contextual account/card selector */}
           {showCreditCardSelector && (
             <div>
               {label('Credit Card')}
-              <select
-                value={form.credit_card_id}
-                onChange={(e) => setForm({ ...form, credit_card_id: e.target.value })}
-                className="input-field"
-                style={inputStyle}
-                required
-              >
+              <select value={form.account_id} onChange={(e) => setForm({ ...form, account_id: e.target.value })}
+                className="input-field" style={{ width: '100%' }} required>
                 <option value="">— Select credit card —</option>
                 {creditCards.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.card_name} (Limit: ₹{parseFloat(c.credit_limit || 0).toLocaleString('en-IN')})
-                  </option>
+                  <option key={c.id} value={c.id}>{c.account_name} (Limit: ₹{parseFloat(c.credit_limit || 0).toLocaleString('en-IN')})</option>
                 ))}
               </select>
             </div>
@@ -187,17 +227,11 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
           {showAccountSelector && (
             <div>
               {label(paymentType === 'UPI' ? 'UPI Linked Account' : 'Bank Account')}
-              <select
-                value={form.account_id}
-                onChange={(e) => setForm({ ...form, account_id: e.target.value })}
-                className="input-field"
-                style={inputStyle}
-              >
+              <select value={form.account_id} onChange={(e) => setForm({ ...form, account_id: e.target.value })}
+                className="input-field" style={{ width: '100%' }}>
                 <option value="">— Select account —</option>
                 {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.account_name} (₹{parseFloat(a.balance || 0).toLocaleString('en-IN')})
-                  </option>
+                  <option key={a.id} value={a.id}>{a.account_name} (₹{parseFloat(a.balance || 0).toLocaleString('en-IN')})</option>
                 ))}
               </select>
             </div>
@@ -211,7 +245,32 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
 
           <div>
             {label('Notes')}
-            <input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="input-field" style={inputStyle} placeholder="Description..." />
+            <input type="text" value={form.notes}
+              onChange={(e) => handleNotesChange(e.target.value)}
+              className="input-field" style={{ width: '100%' }} placeholder="Description (e.g. Swiggy order, Uber ride...)" />
+
+            {/* Smart suggestion chip */}
+            {suggestion && (
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <SparklesIcon style={{ width: 12, height: 12, color: '#8b5cf6', flexShrink: 0 }} />
+                <span style={{ fontSize: 11, color: isDark ? '#9ca3af' : '#6b7280' }}>Suggested:</span>
+                <button
+                  type="button"
+                  onClick={() => { setForm(prev => ({ ...prev, category: suggestion })); setSuggestion(null); }}
+                  style={{
+                    fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 99,
+                    background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.4)',
+                    color: '#8b5cf6', cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                >
+                  ✨ {suggestion}
+                </button>
+              </motion.div>
+            )}
           </div>
 
           {!isEdit && (
@@ -220,7 +279,6 @@ export default function QuickAddTransaction({ isOpen, onClose, onSubmit, account
                 <input type="checkbox" checked={form.is_recurring} onChange={(e) => setForm({ ...form, is_recurring: e.target.checked })} className="w-4 h-4 rounded border-dark-300" />
                 <span className={`text-sm font-medium ${isDark ? 'text-white' : 'text-dark-900'}`}>Make this a recurring transaction</span>
               </label>
-              
               {form.is_recurring && (
                 <div className="mt-3">
                   <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Frequency</label>

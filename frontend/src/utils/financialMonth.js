@@ -1,5 +1,5 @@
 /**
- * Financial Month Utility (Frontend mirror)
+ * Financial Month Utility
  * Cycle: cycleStartDay of previous month → (cycleStartDay-1) of current month
  * Default cycleStartDay is 25 but can be customized per user.
  */
@@ -14,7 +14,7 @@ const MONTH_NAMES = [
  * @param {number} month - 1-12 (label month, e.g. 3 = "March 2026")
  * @param {number} year
  * @param {number} startDay - Day of month when cycle starts (1-28, default 25)
- * @returns {{ startDate: string, endDate: string, label: string, month: number, year: number }}
+ * @returns {{ cycleKey: string, startDate: string, endDate: string, label: string, month: number, year: number }}
  */
 export const getFinancialMonthRange = (month, year, startDay = 25) => {
   const endDay    = startDay - 1;
@@ -23,15 +23,18 @@ export const getFinancialMonthRange = (month, year, startDay = 25) => {
   const startDate  = `${startYear}-${String(startMonth).padStart(2, '0')}-${String(startDay).padStart(2, '0')}`;
   const endDate    = `${year}-${String(month).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
   const label      = `${MONTH_NAMES[month]} ${year}`;
-  return { startDate, endDate, label, month, year };
+  const cycleKey   = `${year}-${String(month).padStart(2, '0')}`;
+  return { cycleKey, startDate, endDate, label, month, year };
 };
 
 /**
- * Get the current active financial month
+ * Get the current active financial cycle.
+ * This is the canonical function used across the entire app.
  * @param {Date} now
  * @param {number} startDay - Day of month cycle starts (default 25)
+ * @returns {{ cycleKey: string, startDate: string, endDate: string, label: string, month: number, year: number }}
  */
-export const getCurrentFinancialMonth = (now = new Date(), startDay = 25) => {
+export const getFinancialCycle = (now = new Date(), startDay = 25) => {
   const day   = now.getDate();
   const month = now.getMonth() + 1;
   const year  = now.getFullYear();
@@ -45,6 +48,20 @@ export const getCurrentFinancialMonth = (now = new Date(), startDay = 25) => {
   }
 };
 
+/** Alias for backward compat */
+export const getCurrentFinancialMonth = getFinancialCycle;
+
+/**
+ * Get the financial cycle for an arbitrary date string 'YYYY-MM-DD'.
+ * @param {string} dateStr
+ * @param {number} startDay
+ */
+export const getFinancialCycleForDate = (dateStr, startDay = 25) => {
+  if (!dateStr) return getFinancialCycle(new Date(), startDay);
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return getFinancialCycle(new Date(y, m - 1, d), startDay);
+};
+
 /**
  * Get the last N financial month ranges (most recent first)
  * @param {number} count
@@ -52,7 +69,7 @@ export const getCurrentFinancialMonth = (now = new Date(), startDay = 25) => {
  * @param {number} startDay - Day of month cycle starts (default 25)
  */
 export const getRecentFinancialMonths = (count = 6, now = new Date(), startDay = 25) => {
-  const current = getCurrentFinancialMonth(now, startDay);
+  const current = getFinancialCycle(now, startDay);
   const months = [current];
 
   for (let i = 1; i < count; i++) {
@@ -91,6 +108,23 @@ export const getShortFinancialMonthLabelForDate = (dateStr, startDay = 25) => {
     month = month === 12 ? 1 : month + 1;
   }
   
-  // Return the first three letters of the month name
   return MONTH_NAMES[month].substring(0, 3);
+};
+
+/**
+ * Get the number of days elapsed in a cycle and total cycle days.
+ * @param {{ startDate: string, endDate: string }} cycle
+ * @param {Date} now
+ */
+export const getCycleDayInfo = (cycle, now = new Date()) => {
+  const start = new Date(cycle.startDate + 'T00:00:00');
+  const end   = new Date(cycle.endDate   + 'T00:00:00');
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  const totalDays   = Math.round((end - start) / 86400000) + 1;
+  const daysElapsed = Math.min(Math.max(Math.round((today - start) / 86400000) + 1, 1), totalDays);
+  const daysLeft    = totalDays - daysElapsed;
+  const progress    = daysElapsed / totalDays; // 0-1
+
+  return { totalDays, daysElapsed, daysLeft, progress };
 };

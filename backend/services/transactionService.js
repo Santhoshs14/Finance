@@ -46,7 +46,13 @@ const createTransaction = async (userId, data) => {
       const account = await accountModel.getById(userId, data.account_id);
       if (account) {
         // Adjust balance: positive amount for income, negative for expense
-        const newBalance = (account.balance || 0) + data.amount;
+        // For credit cards, balance is liability, so expenses (-ve) increase liability, income (+ve) decreases it.
+        let newBalance;
+        if (account.account_type === 'credit') {
+          newBalance = (account.balance || 0) - data.amount;
+        } else {
+          newBalance = (account.balance || 0) + data.amount;
+        }
         await accountModel.update(userId, data.account_id, { balance: newBalance });
       }
     } catch (e) {
@@ -81,7 +87,13 @@ const updateTransaction = async (userId, id, data) => {
       if (diff !== 0) {
         const account = await accountModel.getById(userId, newAccountId);
         if (account) {
-          await accountModel.update(userId, newAccountId, { balance: (account.balance || 0) + diff });
+          let newBalance;
+          if (account.account_type === 'credit') {
+            newBalance = (account.balance || 0) - diff;
+          } else {
+            newBalance = (account.balance || 0) + diff;
+          }
+          await accountModel.update(userId, newAccountId, { balance: newBalance });
         }
       }
     } else {
@@ -89,13 +101,25 @@ const updateTransaction = async (userId, id, data) => {
       if (oldAccountId) {
         const oldAccount = await accountModel.getById(userId, oldAccountId);
         if (oldAccount) {
-          await accountModel.update(userId, oldAccountId, { balance: (oldAccount.balance || 0) - oldAmount });
+          let oldBalance;
+          if (oldAccount.account_type === 'credit') {
+            oldBalance = (oldAccount.balance || 0) + oldAmount;
+          } else {
+            oldBalance = (oldAccount.balance || 0) - oldAmount;
+          }
+          await accountModel.update(userId, oldAccountId, { balance: oldBalance });
         }
       }
       if (newAccountId) {
         const newAccount = await accountModel.getById(userId, newAccountId);
         if (newAccount) {
-          await accountModel.update(userId, newAccountId, { balance: (newAccount.balance || 0) + newAmount });
+          let newBalance;
+          if (newAccount.account_type === 'credit') {
+            newBalance = (newAccount.balance || 0) - newAmount;
+          } else {
+            newBalance = (newAccount.balance || 0) + newAmount;
+          }
+          await accountModel.update(userId, newAccountId, { balance: newBalance });
         }
       }
     }
@@ -118,7 +142,12 @@ const deleteTransaction = async (userId, id) => {
       const account = await accountModel.getById(userId, originalTxn.account_id);
       if (account) {
         // Reverse the transaction amount
-        const newBalance = (account.balance || 0) - (originalTxn.amount || 0);
+        let newBalance;
+        if (account.account_type === 'credit') {
+          newBalance = (account.balance || 0) + (originalTxn.amount || 0);
+        } else {
+          newBalance = (account.balance || 0) - (originalTxn.amount || 0);
+        }
         await accountModel.update(userId, originalTxn.account_id, { balance: newBalance });
       }
     } catch (e) {

@@ -1,7 +1,8 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { db } from '../config/firebase';
-import { collection, doc, onSnapshot, query, orderBy, limit, getDocs, addDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, orderBy, limit, addDoc } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
+import { getFinancialCycle } from '../utils/financialMonth';
 
 const DataContext = createContext(null);
 
@@ -27,122 +28,187 @@ const DEFAULT_CATEGORIES = [
 export const DataProvider = ({ children }) => {
   const { currentUser } = useAuth();
 
-  const [accounts, setAccounts] = useState([]);
+  const [accounts, setAccounts]       = useState([]);
   const [transactions, setTransactions] = useState([]);
-  const [budgets, setBudgets] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [creditCards, setCreditCards] = useState([]);
+  const [budgets, setBudgets]         = useState([]);
+  const [categories, setCategories]   = useState([]);
   const [investments, setInvestments] = useState([]);
-  const [goals, setGoals] = useState([]);
-  const [lending, setLending] = useState([]);
+  const [goals, setGoals]             = useState([]);
+  const [lending, setLending]         = useState([]);
   const [cycleStartDay, setCycleStartDay] = useState(25);
+  const [currentAggregate, setCurrentAggregate] = useState({
+    totalSpent: 0, totalIncome: 0, categoryBreakdown: {},
+  });
 
   useEffect(() => {
     let unsubscribes = [];
 
-    const unsubscribeFirestoreListeners = () => {
-      unsubscribes.forEach(unsub => unsub());
+    const cleanup = () => {
+      unsubscribes.forEach(u => u());
       unsubscribes = [];
     };
 
-    if (currentUser) {
-      const uid = currentUser.uid;
-
-      // Listen to user profile doc for cycleStartDay
-      const profileUnsub = onSnapshot(doc(db, `users/${uid}`), (snap) => {
-        if (snap.exists()) {
-          const data = snap.data();
-          setCycleStartDay(data.cycleStartDay || 25);
-        }
-      });
-      unsubscribes.push(profileUnsub);
-
-      const accountsUnsub = onSnapshot(collection(db, `users/${uid}/accounts`), (snapshot) => {
-        setAccounts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
-      unsubscribes.push(accountsUnsub);
-
-      const txQuery = query(collection(db, `users/${uid}/transactions`), orderBy('date', 'desc'), limit(500));
-      const txUnsub = onSnapshot(txQuery, (snapshot) => {
-        setTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
-      unsubscribes.push(txUnsub);
-
-      const budgetsUnsub = onSnapshot(collection(db, `users/${uid}/budgets`), (snapshot) => {
-        setBudgets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
-      unsubscribes.push(budgetsUnsub);
-
-      // Categories — listen and seed defaults if empty
-      const categoriesRef = collection(db, `users/${uid}/categories`);
-      const catUnsub = onSnapshot(categoriesRef, async (snapshot) => {
-        if (snapshot.empty) {
-          // Seed defaults
-          const batch = DEFAULT_CATEGORIES.map(cat => addDoc(categoriesRef, cat));
-          await Promise.all(batch);
-        } else {
-          setCategories(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-        }
-      });
-      unsubscribes.push(catUnsub);
-
-      const ccUnsub = onSnapshot(collection(db, `users/${uid}/creditCards`), (snapshot) => {
-        setCreditCards(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
-      unsubscribes.push(ccUnsub);
-
-      const invUnsub = onSnapshot(collection(db, `users/${uid}/investments`), (snapshot) => {
-        setInvestments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
-      unsubscribes.push(invUnsub);
-
-      const goalsUnsub = onSnapshot(collection(db, `users/${uid}/goals`), (snapshot) => {
-        setGoals(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
-      unsubscribes.push(goalsUnsub);
-
-      const lendingUnsub = onSnapshot(collection(db, `users/${uid}/lending`), (snapshot) => {
-        setLending(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
-      unsubscribes.push(lendingUnsub);
-
-    } else {
+    if (!currentUser) {
       setAccounts([]);
       setTransactions([]);
       setBudgets([]);
       setCategories([]);
-      setCreditCards([]);
       setInvestments([]);
       setGoals([]);
       setLending([]);
       setCycleStartDay(25);
-      unsubscribeFirestoreListeners();
+      setCurrentAggregate({ totalSpent: 0, totalIncome: 0, categoryBreakdown: {} });
+      return cleanup;
     }
 
-    return () => {
-      unsubscribeFirestoreListeners();
-    };
+    const uid = currentUser.uid;
+
+    // ── Profile (cycleStartDay) ──
+    unsubscribes.push(
+      onSnapshot(doc(db, `users/${uid}`), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          setCycleStartDay(data.cycleStartDay || 25);
+        }
+      })
+    );
+
+    // ── Accounts ──
+    unsubscribes.push(
+      onSnapshot(collection(db, `users/${uid}/accounts`), (snap) => {
+        setAccounts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      })
+    );
+
+    // ── Transactions (latest 500) ──
+    const txQuery = query(
+      collection(db, `users/${uid}/transactions`),
+      orderBy('date', 'desc'),
+      limit(500)
+    );
+    unsubscribes.push(
+      onSnapshot(txQuery, (snap) => {
+        setTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      })
+    );
+
+    // ── Budgets ──
+    unsubscribes.push(
+      onSnapshot(collection(db, `users/${uid}/budgets`), (snap) => {
+        setBudgets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      })
+    );
+
+    // ── Categories — seed defaults if empty ──
+    const categoriesRef = collection(db, `users/${uid}/categories`);
+    unsubscribes.push(
+      onSnapshot(categoriesRef, async (snap) => {
+        if (snap.empty) {
+          await Promise.all(DEFAULT_CATEGORIES.map(cat =>
+            addDoc(categoriesRef, { ...cat, createdAt: new Date().toISOString() })
+          ));
+        } else {
+          setCategories(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
+      })
+    );
+
+
+
+    // ── Investments ──
+    unsubscribes.push(
+      onSnapshot(collection(db, `users/${uid}/investments`), (snap) => {
+        setInvestments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      })
+    );
+
+    // ── Goals ──
+    unsubscribes.push(
+      onSnapshot(collection(db, `users/${uid}/goals`), (snap) => {
+        setGoals(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      })
+    );
+
+    // ── Lending ──
+    unsubscribes.push(
+      onSnapshot(collection(db, `users/${uid}/lending`), (snap) => {
+        setLending(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      })
+    );
+
+    // ── Aggregates (current cycle) ──
+    // We derive cycleKey from current cycleStartDay; re-subscribe whenever it changes.
+    const currentCycle = getFinancialCycle(new Date(), 25); // initial; updated below
+    const aggUnsub = onSnapshot(
+      doc(db, `users/${uid}/aggregates/${currentCycle.cycleKey}`),
+      (snap) => {
+        if (snap.exists()) {
+          setCurrentAggregate(snap.data());
+        } else {
+          setCurrentAggregate({ totalSpent: 0, totalIncome: 0, categoryBreakdown: {} });
+        }
+      }
+    );
+    unsubscribes.push(aggUnsub);
+
+    return cleanup;
   }, [currentUser]);
 
+  // ── Re-subscribe to aggregates when cycleStartDay changes ──
+  useEffect(() => {
+    if (!currentUser) return;
+    const uid = currentUser.uid;
+    const cycle = getFinancialCycle(new Date(), cycleStartDay);
+    const unsub = onSnapshot(
+      doc(db, `users/${uid}/aggregates/${cycle.cycleKey}`),
+      (snap) => {
+        if (snap.exists()) setCurrentAggregate(snap.data());
+        else setCurrentAggregate({ totalSpent: 0, totalIncome: 0, categoryBreakdown: {} });
+      }
+    );
+    return () => unsub();
+  }, [currentUser, cycleStartDay]);
+
+  const getCategoryById = useCallback(
+    (id) => categories.find(c => c.id === id) || null,
+    [categories]
+  );
+
+  const creditCards = useMemo(() => accounts.filter(a => a.type === 'credit'), [accounts]);
+
+  const getCategoryByName = useCallback(
+    (name) => categories.find(c => c.name === name) || null,
+    [categories]
+  );
+
+  const value = useMemo(() => ({
+    accounts,
+    transactions,
+    budgets,
+    categories,
+    creditCards,
+    investments,
+    goals,
+    lending,
+    cycleStartDay,
+    currentAggregate,
+    getCategoryById,
+    getCategoryByName,
+  }), [
+    accounts, transactions, budgets, categories, creditCards,
+    investments, goals, lending, cycleStartDay, currentAggregate,
+    getCategoryById, getCategoryByName,
+  ]);
+
   return (
-    <DataContext.Provider value={{
-      accounts,
-      transactions,
-      budgets,
-      categories,
-      creditCards,
-      investments,
-      goals,
-      lending,
-      cycleStartDay,
-    }}>
+    <DataContext.Provider value={value}>
       {children}
     </DataContext.Provider>
   );
 };
 
 export const useData = () => {
-  const context = useContext(DataContext);
-  if (!context) throw new Error('useData must be used within DataProvider');
-  return context;
+  const ctx = useContext(DataContext);
+  if (!ctx) throw new Error('useData must be used within DataProvider');
+  return ctx;
 };

@@ -69,25 +69,39 @@ const recordNetWorthSnapshots = async () => {
     console.log('Last day of the month detected. Recording Net Worth Snapshots...');
     const accountModel = require('../models/accountModel');
     const investmentModel = require('../models/investmentModel');
-    const creditCardModel = require('../models/creditCardModel');
     const lendingModel = require('../models/lendingModel');
+    const transactionModel = require('../models/transactionModel');
     const { calculateNetWorth } = require('../utils/calculations');
+    const { generateStatementsForUser } = require('./statementService');
 
-    // Get all unique users who have accounts or data
     const usersSnapshot = await db.collection('users').get();
     let processedCount = 0;
 
     for (const userDoc of usersSnapshot.docs) {
       const userId = userDoc.id;
-      const [accounts, investments, creditCards, ccTransactions, lendingItems] = await Promise.all([
+      
+      // Process statements sequentially
+      try {
+        await generateStatementsForUser(userId);
+      } catch (e) {
+        console.error(`Statement generation error for userId: ${userId}:`, e);
+      }
+
+      const [accounts, investments, allTxns, lendingItems] = await Promise.all([
         accountModel.getAll(userId),
         investmentModel.getAll(userId),
-        creditCardModel.getAllCards(userId),
-        creditCardModel.getAllTransactions(userId),
+        transactionModel.getAll(userId),
         lendingModel.getAll(userId),
       ]);
 
-      const netWorthData = calculateNetWorth(accounts, investments, creditCards, ccTransactions, lendingItems);
+      const bankAccounts = accounts.filter(a => a.type !== 'credit');
+      const creditCards = accounts.filter(a => a.type === 'credit');
+      const ccTransactions = allTxns.filter(t => {
+        const acc = accounts.find(a => a.id === t.account_id);
+        return acc && acc.type === 'credit';
+      });
+
+      const netWorthData = calculateNetWorth(bankAccounts, investments, creditCards, ccTransactions, lendingItems);
 
       await db.collection('users').doc(userId).collection('net_worth_snapshots').add({
         date: today.toISOString().split('T')[0],

@@ -26,11 +26,20 @@ const getById = async (userId, id) => {
 };
 
 const create = async (userId, data) => {
-  const encryptedData = encryptData({
+  const baseData = {
     ...data,
-    balance: data.balance || 0,
     created_at: new Date().toISOString(),
-  });
+  };
+
+  if (data.type === 'credit') {
+    baseData.liability = data.liability || 0;
+    delete baseData.balance;
+  } else {
+    baseData.balance = data.balance || 0;
+    delete baseData.liability;
+  }
+
+  const encryptedData = encryptData(baseData);
   const docRef = await getCollection(userId).add(encryptedData);
   return { id: docRef.id, ...data };
 };

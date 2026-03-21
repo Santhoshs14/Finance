@@ -7,12 +7,15 @@
 /**
  * Calculate net worth = sum of all account balances + investment value - credit card outstanding + lent - borrowed
  */
-const calculateNetWorth = (accounts, investments, creditCards, creditCardTransactions, lendingItems = []) => {
-  const totalAccountBalance = accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0);
+const calculateNetWorth = (accounts, investments, lendingItems = []) => {
+  const bankAccounts = accounts.filter(a => a.type !== 'credit');
+  const creditAccounts = accounts.filter(a => a.type === 'credit');
+
+  const totalAccountBalance = bankAccounts.reduce((sum, acc) => sum + (acc.balance || 0), 0);
   const totalInvestmentValue = investments.reduce((sum, inv) => sum + (inv.current_price * inv.quantity), 0);
 
-  // Calculate outstanding per credit card
-  const ccOutstanding = creditCardTransactions.reduce((sum, txn) => sum + (txn.amount || 0), 0);
+  // Calculate outstanding per credit card natively from liability field
+  const ccOutstanding = creditAccounts.reduce((sum, cc) => sum + (cc.liability || 0), 0);
 
   // Calculate lending impact
   const lentAmount = lendingItems
@@ -41,11 +44,10 @@ const calculateTotalSavings = (investments) => {
   return investments.reduce((sum, inv) => sum + (inv.current_price * inv.quantity), 0);
 };
 
-/**
- * Total Liabilities = CC outstanding balance + pending lending (money owed TO user as debtor)
- */
-const calculateTotalLiabilities = (creditCards, creditCardTransactions, lendingItems = []) => {
-  const ccOutstanding = creditCardTransactions.reduce((sum, txn) => sum + (txn.amount || 0), 0);
+const calculateTotalLiabilities = (accounts, lendingItems = []) => {
+  const creditAccounts = accounts.filter(a => a.type === 'credit');
+  const ccOutstanding = creditAccounts.reduce((sum, cc) => sum + (cc.liability || 0), 0);
+
   // Lending where user is borrower (type === 'borrowed')
   const borrowedAmount = lendingItems
     .filter(l => l.type === 'borrowed' && l.status !== 'paid')
@@ -115,18 +117,16 @@ const calculateBudgetUsage = (budgets, transactions, month, year) => {
  * Credit card utilization = outstanding / credit_limit * 100
  * Warn user when utilization exceeds 30 percent.
  */
-const calculateCCUtilization = (creditCards, creditCardTransactions) => {
-  return creditCards.map((card) => {
-    const outstanding = creditCardTransactions
-      .filter((txn) => txn.credit_card_id === card.id)
-      .reduce((sum, txn) => sum + (txn.amount || 0), 0);
-
+const calculateCCUtilization = (accounts) => {
+  const creditAccounts = accounts.filter(a => a.type === 'credit');
+  return creditAccounts.map((card) => {
+    const outstanding = card.liability || 0;
     const utilization = card.credit_limit > 0
       ? parseFloat(((outstanding / card.credit_limit) * 100).toFixed(2))
       : 0;
 
     return {
-      card_name: card.card_name,
+      card_name: card.account_name, // Map account_name to card_name for backward compatibility in FE
       credit_limit: card.credit_limit,
       outstanding,
       available: card.credit_limit - outstanding,
@@ -165,8 +165,8 @@ const calculateInvestmentPL = (investments) => {
 const calculatePortfolioAllocation = (accounts, investments) => {
   let totals = { Equity: 0, Debt: 0, Gold: 0, Crypto: 0, Cash: 0 };
   
-  // Categorize accounts as cash
-  accounts.forEach(acc => {
+  // Categorize accounts as cash (ignore credit cards)
+  accounts.filter(a => a.type !== 'credit').forEach(acc => {
     totals.Cash += (acc.balance || 0);
   });
   

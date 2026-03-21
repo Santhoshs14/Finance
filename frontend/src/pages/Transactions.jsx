@@ -249,7 +249,7 @@ export default function Transactions() {
                   <label style={{ fontSize: 12, fontWeight: 600, color: textSub, display: 'block', marginBottom: 6 }}>Assign to Account (optional)</label>
                   <select value={importAccountId} onChange={(e) => setImportAccountId(e.target.value)} className="input-field">
                     <option value="">Select an account...</option>
-                    {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.account_name} (₹{acc.balance?.toLocaleString('en-IN')})</option>)}
+                    {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.account_name} (₹{parseFloat(acc.type === 'credit' ? acc.liability || 0 : acc.balance || 0).toLocaleString('en-IN')})</option>)}
                   </select>
                 </div>
                 {importPreview && (

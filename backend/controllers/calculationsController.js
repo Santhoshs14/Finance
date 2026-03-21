@@ -4,7 +4,6 @@
  */
 const accountModel = require('../models/accountModel');
 const investmentModel = require('../models/investmentModel');
-const creditCardModel = require('../models/creditCardModel');
 const transactionModel = require('../models/transactionModel');
 const budgetModel = require('../models/budgetModel');
 const goalModel = require('../models/goalModel');
@@ -48,12 +47,10 @@ const getCalculations = async (req, res, next) => {
     }
 
     // Fetch all data in parallel
-    const [accounts, investments, creditCards, ccTransactions, transactions, budgets, goals, sipPlans, lendingItems] =
+    const [accounts, investments, transactions, budgets, goals, sipPlans, lendingItems] =
       await Promise.all([
         accountModel.getAll(req.user.id),
         investmentModel.getAll(req.user.id),
-        creditCardModel.getAllCards(req.user.id),
-        creditCardModel.getAllTransactions(req.user.id),
         transactionModel.getAll(req.user.id),
         budgetModel.getAll(req.user.id),
         goalModel.getAll(req.user.id),
@@ -67,11 +64,11 @@ const getCalculations = async (req, res, next) => {
       return d >= startDate && d <= endDate;
     });
 
-    const netWorthData = calculateNetWorth(accounts, investments, creditCards, ccTransactions, lendingItems);
+    const netWorthData = calculateNetWorth(accounts, investments, lendingItems);
     const totalSavings = calculateTotalSavings(investments);
-    const totalLiabilities = calculateTotalLiabilities(creditCards, ccTransactions, lendingItems);
+    const totalLiabilities = calculateTotalLiabilities(accounts, lendingItems);
     const savingsRateData = calculateSavingsRate(transactions, month, year);
-    const ccData = calculateCCUtilization(creditCards, ccTransactions);
+    const ccData = calculateCCUtilization(accounts);
     const portfolioData = calculatePortfolioAllocation(accounts, investments);
 
     const health_score = calculateFinancialHealthScore(savingsRateData, netWorthData, ccData, portfolioData);

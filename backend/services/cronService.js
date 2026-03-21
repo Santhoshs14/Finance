@@ -94,14 +94,7 @@ const recordNetWorthSnapshots = async () => {
         lendingModel.getAll(userId),
       ]);
 
-      const bankAccounts = accounts.filter(a => a.type !== 'credit');
-      const creditCards = accounts.filter(a => a.type === 'credit');
-      const ccTransactions = allTxns.filter(t => {
-        const acc = accounts.find(a => a.id === t.account_id);
-        return acc && acc.type === 'credit';
-      });
-
-      const netWorthData = calculateNetWorth(bankAccounts, investments, creditCards, ccTransactions, lendingItems);
+      const netWorthData = calculateNetWorth(accounts, investments, lendingItems);
 
       await db.collection('users').doc(userId).collection('net_worth_snapshots').add({
         date: today.toISOString().split('T')[0],

@@ -29,12 +29,11 @@ export default function Accounts() {
   const [selectedAccountId, setSelectedAccountId] = useState(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
 
-  // Combine Bank Accounts and Credit Cards for the list
-  const allAccounts = useMemo(() => {
-    const banks = accounts.map(a => ({ ...a, type: 'bank' }));
-    const cards = creditCards.map(c => ({ ...c, type: 'credit_card', balance: 0, account_name: c.card_name })); // Credit limits are handled separately
-    return [...banks, ...cards].sort((a, b) => b.balance - a.balance);
-  }, [accounts, creditCards]);
+  // Separate accounts purely into Banks vs Credits
+  const bankAccounts = useMemo(() => accounts.filter(a => a.type !== 'credit').sort((a, b) => (b.balance || 0) - (a.balance || 0)), [accounts]);
+  const creditAccounts = useMemo(() => creditCards.sort((a, b) => (b.liability || 0) - (a.liability || 0)), [creditCards]);
+
+  const allAccounts = useMemo(() => [...bankAccounts, ...creditAccounts], [bankAccounts, creditAccounts]);
 
   const selectedAccount = useMemo(() => {
     if (!selectedAccountId && allAccounts.length > 0) {
@@ -48,10 +47,8 @@ export default function Accounts() {
   const accountStats = useMemo(() => {
     if (!selectedAccount) return { income: 0, expense: 0, recentTxns: [], chartData: [] };
 
-    const isCreditCard = selectedAccount.type === 'credit_card';
-    const txns = transactions.filter(t => 
-      isCreditCard ? t.credit_card_id === selectedAccount.id : t.account_id === selectedAccount.id
-    );
+    const isCreditCard = selectedAccount.type === 'credit';
+    const txns = transactions.filter(t => t.account_id === selectedAccount.id);
 
     let income = 0;
     let expense = 0;
@@ -61,15 +58,18 @@ export default function Accounts() {
       if (t.amount > 0) income += t.amount;
       else {
         expense += Math.abs(t.amount);
-        if (isCreditCard) ccOutstanding += Math.abs(t.amount); // Simplistic outstanding calculation
+        if (isCreditCard) ccOutstanding += Math.abs(t.amount);
       }
     });
 
     // Chart Data (Last 30 days cumulative effect) - very basic mock for now
-    let runningBalance = isCreditCard ? ccOutstanding : selectedAccount.balance;
+    let runningBalance = isCreditCard ? (selectedAccount.liability || 0) : (selectedAccount.balance || 0);
     const chartData = txns.slice(0, 30).reverse().map(t => {
+      // Step backwards to render history appropriately based on account type
       if (!isCreditCard) {
-        runningBalance = runningBalance - t.amount; // Reverse engineer balance
+        runningBalance = runningBalance - t.amount; 
+      } else {
+        runningBalance = runningBalance + t.amount; // reversing an expense (-X) on liability means subtracting X, wait mathematically: we step backwards: earlier liability = current liability + amount (if expense is negative).
       }
       return {
         date: new Date(t.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
@@ -78,16 +78,46 @@ export default function Accounts() {
     }).reverse();
 
     if (chartData.length === 0) {
-      chartData.push({ date: 'Now', value: isCreditCard ? ccOutstanding : selectedAccount.balance });
+      chartData.push({ date: 'Now', value: isCreditCard ? (selectedAccount.liability || 0) : (selectedAccount.balance || 0) });
     }
 
-    return { income, expense, recentTxns: txns.slice(0, 10), chartData, ccOutstanding };
+    return { income, expense, recentTxns: txns.slice(0, 10), chartData, ccOutstanding: selectedAccount.liability || 0 };
   }, [selectedAccount, transactions]);
 
   const textMain = isDark ? '#f3f4f6' : '#111827';
   const textSub = isDark ? '#9ca3af' : '#6b7280';
   const border = isDark ? '#374151' : '#e5e7eb';
   const cardBg = isDark ? 'rgba(31, 41, 55, 0.4)' : '#ffffff';
+
+  const renderAccountBtn = (acc, isCard) => {
+    const isSelected = selectedAccountId === acc.id;
+    return (
+      <button 
+        key={acc.id} 
+        onClick={() => setSelectedAccountId(acc.id)}
+        style={{ 
+          display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', 
+          borderRadius: 14, border: 'none', cursor: 'pointer',
+          background: isSelected ? (isDark ? 'rgba(26,191,148,0.1)' : '#e6f7f2') : 'transparent',
+          borderLeft: isSelected ? '4px solid #1abf94' : '4px solid transparent',
+          transition: 'all 0.2s', textAlign: 'left', width: '100%'
+        }}
+        onMouseOver={(e) => !isSelected && (e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.03)' : '#f9fafb')}
+        onMouseOut={(e) => !isSelected && (e.currentTarget.style.background = 'transparent')}
+      >
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: isCard ? 'rgba(245,158,11,0.1)' : 'rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          {isCard ? <CreditCardIcon style={{ width: 20, height: 20, color: '#f59e0b' }} /> : <BanknotesIcon style={{ width: 20, height: 20, color: '#3b82f6' }} />}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ margin: 0, fontWeight: 600, fontSize: 14, color: textMain, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{acc.account_name}</p>
+          <p style={{ margin: 0, fontSize: 11, color: textSub }}>{isCard ? `Limit: ${fmt(acc.credit_limit)}` : (acc.account_type || 'Bank Account')}</p>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: isCard ? '#f59e0b' : textMain }}>{isCard ? fmt(acc.liability || 0) : fmt(acc.balance || 0)}</p>
+        </div>
+      </button>
+    );
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -106,38 +136,22 @@ export default function Accounts() {
         
         {/* Left Col: Account List */}
         <div className="glass-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: textSub, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 8px' }}>Your Portfolio</span>
           
-          {allAccounts.map(acc => {
-            const isSelected = selectedAccountId === acc.id;
-            const isCard = acc.type === 'credit_card';
-            return (
-              <button 
-                key={acc.id} 
-                onClick={() => setSelectedAccountId(acc.id)}
-                style={{ 
-                  display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', 
-                  borderRadius: 14, border: 'none', cursor: 'pointer',
-                  background: isSelected ? (isDark ? 'rgba(26,191,148,0.1)' : '#e6f7f2') : 'transparent',
-                  borderLeft: isSelected ? '4px solid #1abf94' : '4px solid transparent',
-                  transition: 'all 0.2s', textAlign: 'left', width: '100%'
-                }}
-                onMouseOver={(e) => !isSelected && (e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.03)' : '#f9fafb')}
-                onMouseOut={(e) => !isSelected && (e.currentTarget.style.background = 'transparent')}
-              >
-                <div style={{ width: 40, height: 40, borderRadius: 12, background: isCard ? 'rgba(245,158,11,0.1)' : 'rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  {isCard ? <CreditCardIcon style={{ width: 20, height: 20, color: '#f59e0b' }} /> : <BanknotesIcon style={{ width: 20, height: 20, color: '#3b82f6' }} />}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ margin: 0, fontWeight: 600, fontSize: 14, color: textMain, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{acc.account_name}</p>
-                  <p style={{ margin: 0, fontSize: 11, color: textSub }}>{isCard ? `Limit: ${fmt(acc.credit_limit)}` : (acc.account_type || 'Bank Account')}</p>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: isCard ? '#f59e0b' : textMain }}>{isCard ? '' : fmt(acc.balance)}</p>
-                </div>
-              </button>
-            )
-          })}
+          {bankAccounts.length > 0 && (
+            <>
+              <span style={{ fontSize: 13, fontWeight: 700, color: textSub, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 8px', marginTop: 8 }}>Bank Accounts</span>
+              {bankAccounts.map(acc => renderAccountBtn(acc, false))}
+            </>
+          )}
+
+          {creditAccounts.length > 0 && (
+            <>
+              <div style={{ height: 1, background: border, margin: '8px 0' }} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: textSub, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 8px' }}>Credit Cards</span>
+              {creditAccounts.map(acc => renderAccountBtn(acc, true))}
+            </>
+          )}
+
         </div>
 
         {/* Right Col: Account Details */}
@@ -152,11 +166,11 @@ export default function Accounts() {
                     <WalletIcon style={{ width: 16, height: 16, color: '#3b82f6' }} />
                   </div>
                   <span style={{ fontSize: 12, fontWeight: 600, color: textSub, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    {selectedAccount.type === 'credit_card' ? 'Outstanding' : 'Available Balance'}
+                    {selectedAccount.type === 'credit' ? 'Outstanding Liability' : 'Available Balance'}
                   </span>
                 </div>
                 <p style={{ fontSize: 32, fontWeight: 800, color: textMain, margin: 0, letterSpacing: '-1px' }}>
-                  {fmt(selectedAccount.type === 'credit_card' ? accountStats.ccOutstanding : selectedAccount.balance)}
+                  {fmt(selectedAccount.type === 'credit' ? accountStats.ccOutstanding : selectedAccount.balance)}
                 </p>
               </div>
 
@@ -186,7 +200,7 @@ export default function Accounts() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                 <div>
                   <h3 style={{ fontSize: 16, fontWeight: 600, color: textMain, margin: '0 0 4px 0' }}>Activity Timeline</h3>
-                  <p style={{ fontSize: 12, color: textSub, margin: 0 }}>Recent balance fluctuations</p>
+                  <p style={{ fontSize: 12, color: textSub, margin: 0 }}>Recent {selectedAccount.type === 'credit' ? 'liability' : 'balance'} fluctuations</p>
                 </div>
               </div>
               <div style={{ height: 200 }}>
@@ -194,14 +208,14 @@ export default function Accounts() {
                   <AreaChart data={accountStats.chartData}>
                     <defs>
                       <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                        <stop offset="5%" stopColor={selectedAccount.type === 'credit' ? '#f59e0b' : '#3b82f6'} stopOpacity={0.3} />
+                        <stop offset="95%" stopColor={selectedAccount.type === 'credit' ? '#f59e0b' : '#3b82f6'} stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: textSub, fontSize: 11 }} />
                     <YAxis axisLine={false} tickLine={false} tick={{ fill: textSub, fontSize: 11 }} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} width={45} />
                     <Tooltip content={<CustomTooltip isDark={isDark} />} />
-                    <Area type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorVal)" />
+                    <Area type="monotone" dataKey="value" stroke={selectedAccount.type === 'credit' ? '#f59e0b' : '#3b82f6'} strokeWidth={3} fillOpacity={1} fill="url(#colorVal)" />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -228,10 +242,10 @@ export default function Accounts() {
           <QuickAddTransaction 
             isOpen={showQuickAdd} 
             onClose={() => setShowQuickAdd(false)}
-            accounts={accounts} 
+            accounts={bankAccounts} 
             creditCards={creditCards}
-            defaultAccountId={selectedAccount?.type === 'bank' ? selectedAccount.id : null}
-            defaultCreditCardId={selectedAccount?.type === 'credit_card' ? selectedAccount.id : null}
+            defaultAccountId={selectedAccount?.type !== 'credit' ? selectedAccount.id : null}
+            defaultCreditCardId={selectedAccount?.type === 'credit' ? selectedAccount.id : null}
           />
         )}
       </AnimatePresence>

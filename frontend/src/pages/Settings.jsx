@@ -21,6 +21,7 @@ export default function Settings() {
   const initials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
   const { accounts, cycleStartDay } = useData();
+  const bankAccounts = accounts.filter(a => a.type !== 'credit');
   const loading = false;
 
   // Cycle start day state
@@ -227,14 +228,14 @@ export default function Settings() {
         </AnimatePresence>
 
         <div className="space-y-3">
-          {accounts.map((acc, i) => (
+          {bankAccounts.map((acc, i) => (
             <motion.div key={acc.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }} className={`flex flex-wrap gap-4 justify-between items-center p-4 rounded-xl border ${isDark ? 'bg-dark-800/30 border-dark-700' : 'bg-dark-50 border-dark-100'}`}>
               <div>
                 <p className={`font-medium ${isDark ? 'text-white' : 'text-dark-900'}`}>{acc.account_name}</p>
                 <p className={`text-xs capitalize ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{acc.account_type}</p>
               </div>
               <div className="flex items-center gap-4">
-                <span className={`font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>₹{parseFloat(acc.balance).toLocaleString('en-IN')}</span>
+                <span className={`font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>₹{parseFloat(acc.balance || 0).toLocaleString('en-IN')}</span>
                 <div className="flex items-center gap-1 border-l pl-4 border-dark-200 dark:border-dark-700">
                   <button onClick={() => handleEdit(acc)} className="p-1.5 rounded-lg text-primary-500 hover:bg-primary-500/10 transition-colors" title="Edit">
                     <PencilSquareIcon className="w-4 h-4" />
@@ -246,7 +247,7 @@ export default function Settings() {
               </div>
             </motion.div>
           ))}
-          {accounts.length === 0 && <p className="text-sm text-center py-4 text-dark-400">No accounts configured. Add one above.</p>}
+          {bankAccounts.length === 0 && <p className="text-sm text-center py-4 text-dark-400">No accounts configured. Add one above.</p>}
         </div>
       </div>
 

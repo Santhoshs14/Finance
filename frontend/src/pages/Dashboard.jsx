@@ -151,7 +151,8 @@ export default function Dashboard() {
   /* ─── Computed from local data ─── */
   const currentCycle = useMemo(() => getFinancialCycle(new Date(), cycleStartDay), [cycleStartDay]);
 
-  const accountsBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
+  const bankAccounts = useMemo(() => accounts.filter(a => a.type !== 'credit'), [accounts]);
+  const accountsBalance = bankAccounts.reduce((s, a) => s + (a.balance || 0), 0);
 
   // Investment portfolio sum
   const totalSavings = investments.reduce((s, inv) => {
@@ -160,7 +161,7 @@ export default function Dashboard() {
   }, 0);
 
   // Liabilities from credit cards + lending
-  const totalLiabilities = creditCards.reduce((s, cc) => s + parseFloat(cc.balance_due || 0), 0)
+  const totalLiabilities = creditCards.reduce((s, cc) => s + parseFloat(cc.liability || 0), 0)
     + lending.filter(l => l.type === 'borrowed').reduce((s, l) => s + parseFloat(l.amount || 0), 0);
 
   const netWorth = accountsBalance + totalSavings - totalLiabilities;
@@ -195,10 +196,10 @@ export default function Dashboard() {
     const topCat = Object.entries(currentAggregate?.categoryBreakdown || {}).sort((a,b) => b[1]-a[1])[0];
     if (topCat && topCat[0] !== 'Income')
       list.push({ type: 'info', message: `Your top spending category this cycle is ${topCat[0]} at ₹${topCat[1].toLocaleString('en-IN')}.` });
-    if (accounts.some(a => a.balance < 1000))
-      list.push({ type: 'warning', message: 'One or more accounts have a low balance. Consider a top-up.' });
+    if (bankAccounts.some(a => a.balance < 1000))
+      list.push({ type: 'warning', message: 'One or more bank accounts have a low balance. Consider a top-up.' });
     return list;
-  }, [expenses, income, savingsRate, currentAggregate, accounts]);
+  }, [expenses, income, savingsRate, currentAggregate, bankAccounts]);
 
   /* ─── Chart data ─── */
   const categoryData = transactions.reduce((acc, txn) => {
@@ -361,7 +362,7 @@ export default function Dashboard() {
       <AnimatePresence>
         {showQuickAdd && (
           <QuickAddTransaction isOpen={showQuickAdd} onClose={() => setShowQuickAdd(false)}
-            onSubmit={(data) => addTxnMutation.mutate(data)} accounts={accounts} creditCards={creditCards} />
+            onSubmit={(data) => addTxnMutation.mutate(data)} accounts={bankAccounts} creditCards={creditCards} />
         )}
       </AnimatePresence>
     </div>

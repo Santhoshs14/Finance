@@ -128,7 +128,7 @@ export default function CreditCards() {
   
   const metrics = useMemo(() => {
     if (!activeCard) return null;
-    const balance = parseFloat(activeCard.balance || 0);
+    const balance = parseFloat(activeCard.liability || 0);
     const limit = parseFloat(activeCard.credit_limit || 0);
     const available = limit - balance;
     const utilPercent = limit > 0 ? ((balance / limit) * 100).toFixed(1) : 0;
@@ -211,7 +211,7 @@ export default function CreditCards() {
             >
               <div className="font-bold">{card.account_name}</div>
               <div className={`text-xs mt-1 ${activeCardId === card.id ? 'text-primary-100' : 'opacity-70'}`}>
-                ₹{parseFloat(card.balance || 0).toLocaleString('en-IN')} Due
+                ₹{parseFloat(card.liability || 0).toLocaleString('en-IN')} Due
               </div>
             </motion.button>
           ))}

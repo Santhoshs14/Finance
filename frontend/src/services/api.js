@@ -147,13 +147,17 @@ export const transactionsAPI = {
     const txRef = doc(collection(db, `users/${uid}/transactions`));
     batch.set(txRef, txData);
 
-    // 2. Account balance
+    // 2. Account balance / liability
     if (data.account_id) {
       const accRef = doc(db, `users/${uid}/accounts/${data.account_id}`);
       const accSnap = await getDoc(accRef);
       const accType = accSnap.exists() ? accSnap.data().type : 'bank';
-      const delta = accType === 'credit' ? -amount : amount;
-      batch.update(accRef, { balance: increment(Math.round(delta * 100) / 100) });
+      if (accType === 'credit') {
+        const delta = -amount;
+        batch.update(accRef, { liability: increment(Math.round(delta * 100) / 100) });
+      } else {
+        batch.update(accRef, { balance: increment(Math.round(amount * 100) / 100) });
+      }
     }
 
     // 3. Aggregates
@@ -209,7 +213,7 @@ export const transactionsAPI = {
     // 1. Update transaction doc
     batch.update(doc(db, `users/${uid}/transactions/${id}`), newData);
 
-    // 2. Reverse & reapply account balance
+    // 2. Reverse & reapply account balance/liability
     const getAccountType = async (accId) => {
       if (!accId) return null;
       const snap = await getDoc(doc(db, `users/${uid}/accounts/${accId}`));
@@ -220,30 +224,43 @@ export const transactionsAPI = {
       if (oldAccountId) {
         const type = await getAccountType(oldAccountId);
         let balDelta = newAmount - oldAmount;
-        if (type === 'credit') balDelta = -balDelta;
-
+        
         if (balDelta !== 0) {
-          batch.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
-            balance: increment(Math.round(balDelta * 100) / 100),
-          });
+          if (type === 'credit') {
+            batch.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
+              liability: increment(Math.round(-balDelta * 100) / 100),
+            });
+          } else {
+            batch.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
+              balance: increment(Math.round(balDelta * 100) / 100),
+            });
+          }
         }
       }
     } else {
       if (oldAccountId) {
         const type = await getAccountType(oldAccountId);
-        let delta = -oldAmount;
-        if (type === 'credit') delta = -delta;
-        batch.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
-          balance: increment(Math.round(delta * 100) / 100),
-        });
+        if (type === 'credit') {
+          batch.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
+            liability: increment(Math.round(oldAmount * 100) / 100),
+          });
+        } else {
+          batch.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
+            balance: increment(Math.round(-oldAmount * 100) / 100),
+          });
+        }
       }
       if (newAccountId) {
         const type = await getAccountType(newAccountId);
-        let delta = newAmount;
-        if (type === 'credit') delta = -delta;
-        batch.update(doc(db, `users/${uid}/accounts/${newAccountId}`), {
-          balance: increment(Math.round(delta * 100) / 100),
-        });
+        if (type === 'credit') {
+          batch.update(doc(db, `users/${uid}/accounts/${newAccountId}`), {
+            liability: increment(Math.round(-newAmount * 100) / 100),
+          });
+        } else {
+          batch.update(doc(db, `users/${uid}/accounts/${newAccountId}`), {
+            balance: increment(Math.round(newAmount * 100) / 100),
+          });
+        }
       }
     }
 
@@ -292,13 +309,16 @@ export const transactionsAPI = {
     // 1. Delete transaction
     batch.delete(doc(db, `users/${uid}/transactions/${id}`));
 
-    // 2. Reverse account balance
+    // 2. Reverse account balance/liability
     if (txData.account_id && amount !== 0) {
       const accRef = doc(db, `users/${uid}/accounts/${txData.account_id}`);
       const accSnap = await getDoc(accRef);
       const accType = accSnap.exists() ? accSnap.data().type : 'bank';
-      const delta = accType === 'credit' ? amount : -amount;
-      batch.update(accRef, { balance: increment(Math.round(delta * 100) / 100) });
+      if (accType === 'credit') {
+        batch.update(accRef, { liability: increment(Math.round(amount * 100) / 100) });
+      } else {
+        batch.update(accRef, { balance: increment(Math.round(-amount * 100) / 100) });
+      }
     }
 
     // 3. Reverse aggregates

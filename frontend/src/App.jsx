@@ -7,6 +7,9 @@ import { DataProvider } from './context/DataContext';
 import MainLayout from './layouts/MainLayout';
 import { SpeedInsights } from '@vercel/speed-insights/react';
 import { Analytics } from '@vercel/analytics/react';
+import { runDailyCronJobs } from './utils/cronService';
+import { useEffect } from 'react';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const Login = lazy(() => import('./pages/Login'));
 const Register = lazy(() => import('./pages/Register'));
@@ -35,6 +38,13 @@ function ProtectedRoute({ children }) {
 
 function AppRoutes() {
   const { isAuthenticated } = useAuth();
+  
+  useEffect(() => {
+    if (isAuthenticated) {
+      runDailyCronJobs();
+    }
+  }, [isAuthenticated]);
+
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
@@ -59,24 +69,26 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <ThemeProvider>
-        <AuthProvider>
-          <DataProvider>
-            <AppRoutes />
-            <Toaster
-              position="top-right"
-              toastOptions={{
-                style: { borderRadius: '12px', padding: '12px 20px', fontSize: '14px' },
-                success: { style: { background: '#10b981', color: '#fff' } },
-                error: { style: { background: '#ef4444', color: '#fff' } },
-              }}
-            />
-          </DataProvider>
-        </AuthProvider>
-      </ThemeProvider>
-      <SpeedInsights />
-      <Analytics />
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <ThemeProvider>
+          <AuthProvider>
+            <DataProvider>
+              <AppRoutes />
+              <Toaster
+                position="top-right"
+                toastOptions={{
+                  style: { borderRadius: '12px', padding: '12px 20px', fontSize: '14px' },
+                  success: { style: { background: '#10b981', color: '#fff' } },
+                  error: { style: { background: '#ef4444', color: '#fff' } },
+                }}
+              />
+            </DataProvider>
+          </AuthProvider>
+        </ThemeProvider>
+        <SpeedInsights />
+        <Analytics />
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }

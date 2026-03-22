@@ -245,7 +245,7 @@ function BudgetCard({ cat, limit, spent = 0, salary, isDark, onSave, cycleInfo }
 /* ─── Main Budgets Page ─── */
 export default function Budgets() {
   const { isDark } = useTheme();
-  const { categories, transactions: allTransactions, cycleStartDay } = useData();
+  const { categories, currentAggregate, cycleStartDay } = useData();
 
   const cycle = useMemo(() => getFinancialCycle(new Date(), cycleStartDay), [cycleStartDay]);
   const cycleKey = cycle.cycleKey;
@@ -339,21 +339,10 @@ export default function Budgets() {
     categories.filter(c => c.name !== 'Income'), [categories]
   );
 
-  const cycleTransactions = useMemo(() =>
-    allTransactions.filter(t => t.date >= cycle.startDate && t.date <= cycle.endDate),
-    [allTransactions, cycle]
-  );
-
-  // Spend map by category NAME
+  // Spend map directly from real-time aggregates
   const spendMap = useMemo(() => {
-    const map = {};
-    cycleTransactions.forEach(t => {
-      if (t.amount < 0 && t.category && t.category !== 'Income') {
-        map[t.category] = (map[t.category] || 0) + Math.abs(t.amount);
-      }
-    });
-    return map;
-  }, [cycleTransactions]);
+    return currentAggregate?.categoryBreakdown || {};
+  }, [currentAggregate]);
 
   const enriched = useMemo(() =>
     spendingCategories.map(cat => ({

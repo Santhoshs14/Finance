@@ -349,7 +349,11 @@ export const transactionsAPI = {
     // Firestore batch has 500 doc limit — chunk if needed
     const allWrites = [
       ...txSnap.docs.map(d => ({ type: 'delete', ref: d.ref })),
-      ...accSnap.docs.map(d => ({ type: 'update', ref: d.ref, data: { balance: 0 } })),
+      ...accSnap.docs.map(d => {
+        const accData = d.data();
+        if (accData.type === 'credit') return { type: 'update', ref: d.ref, data: { liability: 0 } };
+        return { type: 'update', ref: d.ref, data: { balance: 0 } };
+      }),
       ...aggSnap.docs.map(d => ({ type: 'delete', ref: d.ref })),
     ];
 
@@ -598,15 +602,68 @@ export const importAPI = {
             resolve({ data: { data: transactions } });
           } else {
             const uid = getUid();
-            const CHUNK = 490;
+            const CHUNK = 400; // Leave room for refs
+            
+            const accDeltas = {};
+            const aggDeltas = {};
+
             for (let i = 0; i < transactions.length; i += CHUNK) {
               const batch = writeBatch(db);
-              for (const txn of transactions.slice(i, i + CHUNK)) {
+              for (const t of transactions.slice(i, i + CHUNK)) {
                 const ref = doc(collection(db, `users/${uid}/transactions`));
-                batch.set(ref, txn);
+                // Tag with cycle key for later parsing/rebuilds if needed
+                const cycle = getFinancialCycleForDate(t.date, 25);
+                t._cycleKey = cycle.cycleKey;
+                batch.set(ref, t);
+
+                // Tally Accounts
+                if (t.account_id && t.amount !== 0) {
+                  accDeltas[t.account_id] = (accDeltas[t.account_id] || 0) + t.amount;
+                }
+
+                // Tally Aggregates
+                const amt = t.amount;
+                const cKey = t._cycleKey;
+                if (!aggDeltas[cKey]) aggDeltas[cKey] = { spent: 0, income: 0, cat: {} };
+                
+                const isTransfer = t.payment_type === 'Transfer' || t.category?.toLowerCase() === 'transfer' || t.category?.toLowerCase() === 'credit card payment';
+                if (!isTransfer) {
+                  if (amt > 0) aggDeltas[cKey].income += amt;
+                  else if (amt < 0) {
+                    aggDeltas[cKey].spent += Math.abs(amt);
+                    if (t.category) {
+                       aggDeltas[cKey].cat[t.category] = (aggDeltas[cKey].cat[t.category] || 0) + Math.abs(amt);
+                    }
+                  }
+                }
               }
               await batch.commit();
             }
+
+            // Post-batch atomic updates of Account Balances & Aggregates
+            const finalizeBatch = writeBatch(db);
+            
+            for (const [accId, delta] of Object.entries(accDeltas)) {
+              if (delta === 0) continue;
+              const accRef = doc(db, `users/${uid}/accounts/${accId}`);
+              const snap = await getDoc(accRef);
+              const type = snap.exists() ? snap.data().type : 'bank';
+              if (type === 'credit') finalizeBatch.update(accRef, { liability: increment(Math.round(-delta * 100) / 100) });
+              else finalizeBatch.update(accRef, { balance: increment(Math.round(delta * 100) / 100) });
+            }
+
+            for (const [cKey, deltas] of Object.entries(aggDeltas)) {
+              const aggRef = doc(db, `users/${uid}/aggregates/${cKey}`);
+              const updateVars = { updatedAt: new Date().toISOString() };
+              if (deltas.income > 0) updateVars.totalIncome = increment(deltas.income);
+              if (deltas.spent > 0) updateVars.totalSpent = increment(deltas.spent);
+              for (const [cat, v] of Object.entries(deltas.cat)) {
+                if (v > 0) updateVars[`categoryBreakdown.${cat}`] = increment(v);
+              }
+              finalizeBatch.set(aggRef, updateVars, { merge: true });
+            }
+
+            await finalizeBatch.commit();
             resolve({ data: { data: transactions } });
           }
         } catch (error) {

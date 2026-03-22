@@ -1,8 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
+import { useAuth } from '../context/AuthContext';
+import { db } from '../config/firebase';
+import { collection, query, where, orderBy, limit, startAfter, getDocs, onSnapshot } from 'firebase/firestore';
 import TransactionTable from '../components/TransactionTable';
 import QuickAddTransaction from '../components/QuickAddTransaction';
 import { transactionsAPI, importAPI } from '../services/api';
@@ -15,6 +18,7 @@ const fmt = (n) => '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigit
 export default function Transactions() {
   const { isDark } = useTheme();
   const queryClient = useQueryClient();
+  const { currentUser } = useAuth();
 
   const [selectedCycle, setSelectedCycle] = useState(0);
   const [showAdd, setShowAdd] = useState(false);
@@ -24,16 +28,79 @@ export default function Transactions() {
   const [importAccountId, setImportAccountId] = useState('');
   const [importPreview, setImportPreview] = useState(null);
 
-  const { transactions: allTransactions, accounts, creditCards, categories, cycleStartDay } = useData();
+  const { accounts, creditCards, categories, cycleStartDay } = useData();
 
   // Recompute cycle list whenever cycleStartDay changes
   const FINANCIAL_MONTHS = useMemo(() => getRecentFinancialMonths(8, new Date(), cycleStartDay), [cycleStartDay]);
   const activeCycle = FINANCIAL_MONTHS[selectedCycle];
-  const isLoading = false;
 
-  const transactions = useMemo(() => {
-    return allTransactions.filter(t => t.date >= activeCycle.startDate && t.date <= activeCycle.endDate);
-  }, [allTransactions, activeCycle]);
+  const [transactions, setTransactions] = useState([]);
+  const [lastVisible, setLastVisible] = useState(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isPaginating, setIsPaginating] = useState(false);
+
+  // Initial load / Real-time listener for first page ONLY
+  useEffect(() => {
+    if (!currentUser || !activeCycle) return;
+    
+    setTransactions([]);
+    setLastVisible(null);
+    setHasMore(true);
+    setIsLoading(true);
+
+    const q = query(
+      collection(db, `users/${currentUser.uid}/transactions`),
+      where('date', '>=', activeCycle.startDate),
+      where('date', '<=', activeCycle.endDate),
+      orderBy('date', 'desc'),
+      limit(50)
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      setTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      if (snap.docs.length > 0) {
+        setLastVisible(snap.docs[snap.docs.length - 1]);
+      }
+      setHasMore(snap.docs.length === 50);
+      setIsLoading(false);
+    });
+    
+    return () => unsub();
+  }, [currentUser, activeCycle]);
+
+  const loadMore = async () => {
+    if (!lastVisible || !hasMore || !currentUser) return;
+    setIsPaginating(true);
+    try {
+      const q = query(
+        collection(db, `users/${currentUser.uid}/transactions`),
+        where('date', '>=', activeCycle.startDate),
+        where('date', '<=', activeCycle.endDate),
+        orderBy('date', 'desc'),
+        startAfter(lastVisible),
+        limit(50)
+      );
+      const snap = await getDocs(q);
+      const newTxns = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      
+      setTransactions(prev => {
+        const existingIds = new Set(prev.map(t => t.id));
+        const filteredNew = newTxns.filter(t => !existingIds.has(t.id));
+        return [...prev, ...filteredNew];
+      });
+
+      if (snap.docs.length > 0) {
+        setLastVisible(snap.docs[snap.docs.length - 1]);
+      }
+      setHasMore(snap.docs.length === 50);
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to load more');
+    } finally {
+      setIsPaginating(false);
+    }
+  };
 
   const textMain = isDark ? '#f3f4f6' : '#111827';
   const textSub  = isDark ? '#9ca3af' : '#6b7280';
@@ -166,7 +233,7 @@ export default function Transactions() {
           { label: 'Total Spent', value: fmt(analytics.totalSpent), color: '#ef4444' },
           { label: 'Top Category', value: analytics.topCategory, color: '#f59e0b' },
           { label: 'Daily Average', value: fmt(analytics.dailyAvg), color: '#8b5cf6' },
-          { label: 'Transactions', value: analytics.count, color: '#1abf94' },
+          { label: 'Transactions (Loaded)', value: analytics.count, color: '#1abf94' },
         ].map(card => (
           <motion.div key={card.label} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="glass-card"
             style={{ padding: '14px 18px' }}>
@@ -186,24 +253,39 @@ export default function Transactions() {
             <p style={{ fontSize: 13, color: textSub, marginTop: 8 }}>in {activeCycle.label} ({activeCycle.startDate} → {activeCycle.endDate})</p>
           </div>
         ) : (
-          grouped.map(([date, dayTxns]) => {
-            const daySpent = dayTxns.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
-            const dayIncome = dayTxns.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
-            const d = new Date(date + 'T00:00:00');
-            const dateLabel = d.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' });
-            return (
-              <div key={date} style={{ marginBottom: 24 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${borderColor}` }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: textMain }}>{dateLabel}</span>
-                  <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
-                    {dayIncome > 0 && <span style={{ color: '#1abf94', fontWeight: 600 }}>+{fmt(dayIncome)}</span>}
-                    {daySpent > 0 && <span style={{ color: '#ef4444', fontWeight: 600 }}>-{fmt(daySpent)}</span>}
+          <>
+            {grouped.map(([date, dayTxns]) => {
+              const daySpent = dayTxns.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
+              const dayIncome = dayTxns.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+              const d = new Date(date + 'T00:00:00');
+              const dateLabel = d.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' });
+              return (
+                <div key={date} style={{ marginBottom: 24 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${borderColor}` }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: textMain }}>{dateLabel}</span>
+                    <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
+                      {dayIncome > 0 && <span style={{ color: '#1abf94', fontWeight: 600 }}>+{fmt(dayIncome)}</span>}
+                      {daySpent > 0 && <span style={{ color: '#ef4444', fontWeight: 600 }}>-{fmt(daySpent)}</span>}
+                    </div>
                   </div>
+                  <TransactionTable transactions={dayTxns} onEdit={handleEdit} onDelete={handleDelete} categories={categories} />
                 </div>
-                <TransactionTable transactions={dayTxns} onEdit={handleEdit} onDelete={handleDelete} categories={categories} />
+              );
+            })}
+            
+            {hasMore && (
+              <div style={{ textAlign: 'center', marginTop: 20 }}>
+                <button
+                  onClick={loadMore}
+                  disabled={isPaginating}
+                  className="btn-secondary"
+                  style={{ padding: '8px 24px', borderRadius: 99, fontSize: 13 }}
+                >
+                  {isPaginating ? 'Loading...' : 'Load More'}
+                </button>
               </div>
-            );
-          })
+            )}
+          </>
         )}
       </div>
 

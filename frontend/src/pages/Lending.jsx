@@ -3,6 +3,9 @@ import { motion } from 'framer-motion';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
+import { useAuth } from '../context/AuthContext';
+import { db } from '../config/firebase';
+import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { lendingAPI } from '../services/api';
 import { PlusIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
@@ -15,9 +18,19 @@ export default function Lending() {
 
   const [repayForm, setRepayForm] = useState({ id: null, amount: '' });
 
-  const { lending: records } = useData();
-  const loading = false;
+  const { currentUser } = useAuth();
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    if (!currentUser) return;
+    const q = query(collection(db, `users/${currentUser.uid}/lending`), orderBy('date', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      setRecords(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    });
+    return () => unsub();
+  }, [currentUser]);
   const addMutation = useMutation({
     mutationFn: (data) => lendingAPI.create(data),
     onSuccess: () => {

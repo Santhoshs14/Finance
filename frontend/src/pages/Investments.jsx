@@ -4,6 +4,9 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
+import { useAuth } from '../context/AuthContext';
+import { db } from '../config/firebase';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import ChartCard from '../components/ChartCard';
 import { investmentsAPI, mutualFundsAPI, calculationsAPI } from '../services/api';
 import { PlusIcon } from '@heroicons/react/24/outline';
@@ -23,10 +26,36 @@ export default function Investments() {
   const [sipForm, setSipForm] = useState({ fund_id: '', monthly_amount: '', start_date: new Date().toISOString().split('T')[0] });
   const [tab, setTab] = useState('investments');
 
-  const { investments, mutualFunds, sips } = useData();
-  const invLoading = false;
-  const mfLoading = false;
-  const sipLoading = false;
+  const { currentUser } = useAuth();
+  const [investments, setInvestments] = useState([]);
+  const [mutualFunds, setMutualFunds] = useState([]);
+  const [sips, setSips] = useState([]);
+
+  const [invLoading, setInvLoading] = useState(true);
+  const [mfLoading, setMfLoading] = useState(true);
+  const [sipLoading, setSipLoading] = useState(true);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const uid = currentUser.uid;
+
+    const unsubInv = onSnapshot(collection(db, `users/${uid}/investments`), (snap) => {
+      setInvestments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setInvLoading(false);
+    });
+
+    const unsubMF = onSnapshot(collection(db, `users/${uid}/mutual_funds`), (snap) => {
+      setMutualFunds(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setMfLoading(false);
+    });
+
+    const unsubSIP = onSnapshot(collection(db, `users/${uid}/sips`), (snap) => {
+      setSips(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setSipLoading(false);
+    });
+
+    return () => { unsubInv(); unsubMF(); unsubSIP(); };
+  }, [currentUser]);
   const { data: calculations = null, isLoading: calcLoading } = useQuery({ queryKey: ['calculations'], queryFn: async () => { try { const res = await calculationsAPI.get(); return res.data.data; } catch(e) { return null; } } });
 
   const loading = invLoading || mfLoading || sipLoading || calcLoading;

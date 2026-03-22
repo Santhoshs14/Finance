@@ -2,6 +2,9 @@ import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
+import { useAuth } from '../context/AuthContext';
+import { db } from '../config/firebase';
+import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 import ChartCard from '../components/ChartCard';
 import { budgetSnapshotsAPI } from '../services/api';
 import { getFinancialCycle, getRecentFinancialMonths, getCycleDayInfo } from '../utils/financialMonth';
@@ -21,7 +24,8 @@ const CHART_COLORS = ['#6366f1','#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6
 
 export default function Reports() {
   const { isDark } = useTheme();
-  const { transactions, categories, cycleStartDay } = useData();
+  const { currentUser } = useAuth();
+  const { categories, cycleStartDay } = useData();
   const [tab, setTab] = useState('cycle');
   const [selectedCycleIdx, setSelectedCycleIdx] = useState(0);
   const [report, setReport] = useState(null);
@@ -60,97 +64,114 @@ export default function Reports() {
     },
   };
 
-  const calculateReport = () => {
+  const calculateReport = async () => {
+    if (!currentUser) return;
     setLoading(true);
-    setTimeout(() => {
-      try {
-        if (tab === 'cycle') {
-          const cycle = selectedCycle;
-          const filtered = transactions.filter(t => t.date >= cycle.startDate && t.date <= cycle.endDate);
+    try {
+      if (tab === 'cycle') {
+        const cycle = selectedCycle;
+        
+        // Fetch cycle transactions
+        const qCycle = query(collection(db, `users/${currentUser.uid}/transactions`), where('date', '>=', cycle.startDate), where('date', '<=', cycle.endDate));
+        const snapCycle = await getDocs(qCycle);
+        const filtered = snapCycle.docs.map(d => d.data());
 
-          let totalIncome = 0, totalExpense = 0;
-          const categoryBreakdown = {};
-          filtered.forEach(t => {
-            const amt = Math.abs(t.amount);
-            if (t.category === 'Income' || t.amount > 0) totalIncome += amt;
-            else totalExpense += amt;
-            if (!categoryBreakdown[t.category]) categoryBreakdown[t.category] = { total: 0, count: 0 };
-            categoryBreakdown[t.category].total += amt;
-            categoryBreakdown[t.category].count += 1;
-          });
+        let totalIncome = 0, totalExpense = 0;
+        const categoryBreakdown = {};
+        filtered.forEach(t => {
+          const amt = Math.abs(t.amount);
+          if (t.category === 'Income' || t.amount > 0) totalIncome += amt;
+          else totalExpense += amt;
+          if (!categoryBreakdown[t.category]) categoryBreakdown[t.category] = { total: 0, count: 0 };
+          categoryBreakdown[t.category].total += amt;
+          categoryBreakdown[t.category].count += 1;
+        });
 
-          // Compute trends: last 6 cycles per category
-          const last6 = recentCycles.slice(0, 6);
-          const categoryTrend = {};
-          last6.forEach(cyc => {
-            const txns = transactions.filter(t => t.date >= cyc.startDate && t.date <= cyc.endDate && t.amount < 0 && t.category !== 'Income');
-            const top5 = Object.entries(categoryBreakdown)
-              .filter(([n]) => n !== 'Income')
-              .sort((a, b) => b[1].total - a[1].total)
-              .slice(0, 5)
-              .map(([n]) => n);
-            top5.forEach(catName => {
-              if (!categoryTrend[catName]) categoryTrend[catName] = [];
-              const spent = txns.filter(t => t.category === catName).reduce((s, t) => s + Math.abs(t.amount), 0);
-              categoryTrend[catName].push({ label: cyc.label.split(' ')[0], spent });
-            });
-          });
+        // Compute trends: last 6 cycles per category (aggregate query or fetch all for 6 months)
+        // For accurate trends we fetch txns for the last 6 months
+        const last6 = recentCycles.slice(0, 6);
+        const earliestDate = last6[last6.length - 1].startDate;
+        
+        const qTrend = query(collection(db, `users/${currentUser.uid}/transactions`), where('date', '>=', earliestDate));
+        const snapTrend = await getDocs(qTrend);
+        const trendTxns = snapTrend.docs.map(d => d.data());
 
-          // Previous cycle comparison
-          const prevCycle = recentCycles[1];
-          const prevFiltered = prevCycle
-            ? transactions.filter(t => t.date >= prevCycle.startDate && t.date <= prevCycle.endDate && t.amount < 0)
-            : [];
-          const prevCatMap = {};
-          prevFiltered.forEach(t => { prevCatMap[t.category] = (prevCatMap[t.category] || 0) + Math.abs(t.amount); });
+        const categoryTrend = {};
+        last6.forEach(cyc => {
+          const txns = trendTxns.filter(t => t.date >= cyc.startDate && t.date <= cyc.endDate && t.amount < 0 && t.category !== 'Income');
+          const top5 = Object.entries(categoryBreakdown)
+            .filter(([n]) => n !== 'Income')
+            .sort((a, b) => b[1].total - a[1].total)
+            .slice(0, 5)
+            .map(([n]) => n);
+          top5.forEach(catName => {
+            if (!categoryTrend[catName]) categoryTrend[catName] = [];
+            const spent = txns.filter(t => t.category === catName).reduce((s, t) => s + Math.abs(t.amount), 0);
+            categoryTrend[catName].push({ label: cyc.label.split(' ')[0], spent });
+          });
+        });
 
-          // Most improved: biggest reduction vs previous cycle
-          let mostImproved = { name: null, saving: 0 };
-          Object.entries(prevCatMap).forEach(([cat, prevAmt]) => {
-            const currAmt = categoryBreakdown[cat]?.total || 0;
-            const saving = prevAmt - currAmt;
-            if (saving > mostImproved.saving) mostImproved = { name: cat, saving };
-          });
+        // Previous cycle comparison
+        const prevCycle = recentCycles[1];
+        const prevFiltered = prevCycle
+          ? trendTxns.filter(t => t.date >= prevCycle.startDate && t.date <= prevCycle.endDate && t.amount < 0)
+          : [];
+        const prevCatMap = {};
+        prevFiltered.forEach(t => { prevCatMap[t.category] = (prevCatMap[t.category] || 0) + Math.abs(t.amount); });
 
-          setReport({
-            total_transactions: filtered.length,
-            total_income: totalIncome,
-            total_expense: totalExpense,
-            savings_rate: totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome * 100).toFixed(1) : 0,
-            category_breakdown: categoryBreakdown,
-            category_trend: categoryTrend,
-            most_improved: mostImproved,
-            prev_cat_map: prevCatMap,
-          });
+        // Most improved: biggest reduction vs previous cycle
+        let mostImproved = { name: null, saving: 0 };
+        Object.entries(prevCatMap).forEach(([cat, prevAmt]) => {
+          const currAmt = categoryBreakdown[cat]?.total || 0;
+          const saving = prevAmt - currAmt;
+          if (saving > mostImproved.saving) mostImproved = { name: cat, saving };
+        });
 
-        } else {
-          // Yearly
-          const year = new Date().getFullYear();
-          const filtered = transactions.filter(t => new Date(t.date).getFullYear() === year);
-          let totalIncome = 0, totalExpense = 0;
-          const monthlyBreakdown = {};
-          for (let i = 1; i <= 12; i++) monthlyBreakdown[i] = { income: 0, expense: 0 };
-          filtered.forEach(t => {
-            const m = new Date(t.date).getMonth() + 1;
-            const amt = Math.abs(t.amount);
-            if (t.category === 'Income' || t.amount > 0) { totalIncome += amt; monthlyBreakdown[m].income += amt; }
-            else { totalExpense += amt; monthlyBreakdown[m].expense += amt; }
-          });
-          setReport({
-            total_transactions: filtered.length,
-            total_income: totalIncome,
-            total_expense: totalExpense,
-            savings_rate: totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome * 100).toFixed(1) : 0,
-            monthly_breakdown: monthlyBreakdown,
-          });
-        }
-        toast.success('Report generated!');
-      } catch (err) {
-        toast.error('Failed to generate report');
-        console.error(err);
+        setReport({
+          total_transactions: filtered.length,
+          total_income: totalIncome,
+          total_expense: totalExpense,
+          savings_rate: totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome * 100).toFixed(1) : 0,
+          category_breakdown: categoryBreakdown,
+          category_trend: categoryTrend,
+          most_improved: mostImproved,
+          prev_cat_map: prevCatMap,
+        });
+
+      } else {
+        // Yearly
+        const year = new Date().getFullYear();
+        const startString = `${year}-01-01`;
+        const endString = `${year}-12-31`;
+        
+        const qYear = query(collection(db, `users/${currentUser.uid}/transactions`), where('date', '>=', startString), where('date', '<=', endString));
+        const snapYear = await getDocs(qYear);
+        const filtered = snapYear.docs.map(d => d.data());
+        
+        let totalIncome = 0, totalExpense = 0;
+        const monthlyBreakdown = {};
+        for (let i = 1; i <= 12; i++) monthlyBreakdown[i] = { income: 0, expense: 0 };
+        filtered.forEach(t => {
+          const m = new Date(t.date).getMonth() + 1;
+          const amt = Math.abs(t.amount);
+          if (t.category === 'Income' || t.amount > 0) { totalIncome += amt; monthlyBreakdown[m].income += amt; }
+          else { totalExpense += amt; monthlyBreakdown[m].expense += amt; }
+        });
+        setReport({
+          total_transactions: filtered.length,
+          total_income: totalIncome,
+          total_expense: totalExpense,
+          savings_rate: totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome * 100).toFixed(1) : 0,
+          monthly_breakdown: monthlyBreakdown,
+        });
       }
+      toast.success('Report generated!');
+    } catch (err) {
+      toast.error('Failed to generate report');
+      console.error(err);
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
   // Derived display data

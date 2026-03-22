@@ -11,7 +11,11 @@ import { getShortFinancialMonthLabelForDate, getFinancialCycle } from '../utils/
 import TransactionTable from '../components/TransactionTable';
 import QuickAddTransaction from '../components/QuickAddTransaction';
 import { useData } from '../context/DataContext';
-import { transactionsAPI, calculationsAPI, insightsAPI } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { db } from '../config/firebase';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { transactionsAPI, calculationsAPI } from '../services/api';
+import { generateInsightsFromAggregates } from '../utils/insights';
 import {
   ArrowUpIcon, ArrowDownIcon, PlusIcon,
   ScaleIcon, BanknotesIcon, ChartBarIcon,
@@ -128,7 +132,14 @@ const CHART_COLORS = ['#1abf94', '#34d399', '#f59e0b', '#ef4444', '#8b5cf6', '#e
 export default function Dashboard() {
   const { isDark } = useTheme();
   const queryClient = useQueryClient();
+  const { currentUser } = useAuth();
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+
+  // Local state for removed context collections
+  const [goals, setGoals] = useState([]);
+  const [investments, setInvestments] = useState([]);
+  const [lending, setLending] = useState([]);
+  const [metricsLoading, setMetricsLoading] = useState(true);
 
   useEffect(() => {
     const handler = (e) => { if (e.key === 'n' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); setShowQuickAdd(true); } };
@@ -136,8 +147,18 @@ export default function Dashboard() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const { transactions, accounts, goals, creditCards, investments, lending, categories, cycleStartDay, currentAggregate } = useData();
-  const txnLoading = false;
+  useEffect(() => {
+    if (!currentUser) return;
+    const unsubs = [
+      onSnapshot(collection(db, `users/${currentUser.uid}/goals`), snap => setGoals(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
+      onSnapshot(collection(db, `users/${currentUser.uid}/investments`), snap => setInvestments(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
+      onSnapshot(collection(db, `users/${currentUser.uid}/lending`), snap => setLending(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+    ];
+    setMetricsLoading(false);
+    return () => unsubs.forEach(fn => fn());
+  }, [currentUser]);
+
+  const { transactions, accounts, creditCards, categories, cycleStartDay, currentAggregate } = useData();
   const { data: snapshots = [] } = useQuery({
     queryKey: ['snapshots'],
     queryFn: async () => { try { const r = await calculationsAPI.getSnapshots(); return r.data.data || []; } catch { return []; } },
@@ -160,9 +181,13 @@ export default function Dashboard() {
     return s + val;
   }, 0);
 
-  // Liabilities from credit cards + lending
+  // Liabilities from credit cards + lending (fixed paid_amount issue)
   const totalLiabilities = creditCards.reduce((s, cc) => s + parseFloat(cc.liability || 0), 0)
-    + lending.filter(l => l.type === 'borrowed').reduce((s, l) => s + parseFloat(l.amount || 0), 0);
+    + lending.filter(l => l.type === 'borrowed').reduce((s, l) => {
+        const principal = parseFloat(l.amount || 0);
+        const paid = parseFloat(l.paid_amount || 0);
+        return s + (principal - paid);
+      }, 0);
 
   const netWorth = accountsBalance + totalSavings - totalLiabilities;
 
@@ -186,20 +211,14 @@ export default function Dashboard() {
       .slice(0, 5);
   }, [currentAggregate]);
 
-  // Local insights from cycle data
+  // Local insights generated cleanly from aggregates and context
   const insights = useMemo(() => {
-    const list = [];
-    if (expenses > income * 0.9 && income > 0)
-      list.push({ type: 'warning', message: `You've spent ${((expenses/income)*100).toFixed(0)}% of your cycle income. Watch your spending.` });
-    if (savingsRate > 30)
-      list.push({ type: 'positive', message: `Great savings rate of ${savingsRate.toFixed(1)}% this cycle! Keep it up.` });
-    const topCat = Object.entries(currentAggregate?.categoryBreakdown || {}).sort((a,b) => b[1]-a[1])[0];
-    if (topCat && topCat[0] !== 'Income')
-      list.push({ type: 'info', message: `Your top spending category this cycle is ${topCat[0]} at ₹${topCat[1].toLocaleString('en-IN')}.` });
-    if (bankAccounts.some(a => a.balance < 1000))
-      list.push({ type: 'warning', message: 'One or more bank accounts have a low balance. Consider a top-up.' });
-    return list;
-  }, [expenses, income, savingsRate, currentAggregate, bankAccounts]);
+    const generated = generateInsightsFromAggregates(currentAggregate, null, accounts);
+    if (bankAccounts.some(a => a.balance < 1000)) {
+      generated.push({ type: 'warning', title: 'Low Balance', message: 'One or more bank accounts have a low balance. Consider a top-up.' });
+    }
+    return generated;
+  }, [currentAggregate, accounts, bankAccounts]);
 
   /* ─── Chart data ─── */
   const categoryData = transactions.reduce((acc, txn) => {
@@ -225,7 +244,7 @@ export default function Dashboard() {
   const textSub  = isDark ? '#9ca3af' : '#6b7280';
   const cardBorder = isDark ? '#252f3e' : '#e5e7eb';
 
-  if (txnLoading) return (
+  if (metricsLoading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
       <div style={{ width: 44, height: 44, borderRadius: '50%', border: '4px solid rgba(26,191,148,0.2)', borderTopColor: '#1abf94', animation: 'spin 0.9s linear infinite' }} />
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

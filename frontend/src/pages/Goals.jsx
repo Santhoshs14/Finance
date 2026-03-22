@@ -3,6 +3,9 @@ import { motion } from 'framer-motion';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
+import { useAuth } from '../context/AuthContext';
+import { db } from '../config/firebase';
+import { collection, onSnapshot } from 'firebase/firestore';
 import GoalCard from '../components/GoalCard';
 import { goalsAPI } from '../services/api';
 import { PlusIcon } from '@heroicons/react/24/outline';
@@ -14,9 +17,18 @@ export default function Goals() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ goal_name: '', target_amount: '', current_amount: '', deadline: '' });
 
-  const { goals } = useData();
-  const loading = false;
+  const { currentUser } = useAuth();
+  const [goals, setGoals] = useState([]);
+  const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    if (!currentUser) return;
+    const unsub = onSnapshot(collection(db, `users/${currentUser.uid}/goals`), (snap) => {
+      setGoals(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    });
+    return () => unsub();
+  }, [currentUser]);
   const addMutation = useMutation({
     mutationFn: (data) => goalsAPI.create(data),
     onSuccess: () => {

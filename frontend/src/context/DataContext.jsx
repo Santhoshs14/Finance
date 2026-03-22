@@ -84,7 +84,7 @@ export const DataProvider = ({ children }) => {
     const txQuery = query(
       collection(db, `users/${uid}/transactions`),
       orderBy('date', 'desc'),
-      limit(500)
+      limit(50)
     );
     unsubscribes.push(
       onSnapshot(txQuery, (snap) => {
@@ -92,13 +92,7 @@ export const DataProvider = ({ children }) => {
       })
     );
 
-    // ── Budgets ──
-    unsubscribes.push(
-      onSnapshot(collection(db, `users/${uid}/budgets`), (snap) => {
-        setBudgets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      })
-    );
-
+    // ── Budgets (moved to Budgets page) ──
     // ── Categories — seed defaults if empty ──
     const categoriesRef = collection(db, `users/${uid}/categories`);
     unsubscribes.push(
@@ -115,41 +109,9 @@ export const DataProvider = ({ children }) => {
 
 
 
-    // ── Investments ──
-    unsubscribes.push(
-      onSnapshot(collection(db, `users/${uid}/investments`), (snap) => {
-        setInvestments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      })
-    );
+    // ── Investments, Goals, Lending (moved to respective pages) ──
 
-    // ── Goals ──
-    unsubscribes.push(
-      onSnapshot(collection(db, `users/${uid}/goals`), (snap) => {
-        setGoals(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      })
-    );
 
-    // ── Lending ──
-    unsubscribes.push(
-      onSnapshot(collection(db, `users/${uid}/lending`), (snap) => {
-        setLending(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      })
-    );
-
-    // ── Aggregates (current cycle) ──
-    // We derive cycleKey from current cycleStartDay; re-subscribe whenever it changes.
-    const currentCycle = getFinancialCycle(new Date(), 25); // initial; updated below
-    const aggUnsub = onSnapshot(
-      doc(db, `users/${uid}/aggregates/${currentCycle.cycleKey}`),
-      (snap) => {
-        if (snap.exists()) {
-          setCurrentAggregate(snap.data());
-        } else {
-          setCurrentAggregate({ totalSpent: 0, totalIncome: 0, categoryBreakdown: {} });
-        }
-      }
-    );
-    unsubscribes.push(aggUnsub);
 
     return cleanup;
   }, [currentUser]);

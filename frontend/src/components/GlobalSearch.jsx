@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MagnifyingGlassIcon, ArrowsRightLeftIcon, HomeIcon, BanknotesIcon, ChartBarIcon, FlagIcon, CreditCardIcon, ChartPieIcon, Cog6ToothIcon } from '@heroicons/react/24/outline';
 import { useData } from '../context/DataContext';
 import { useTheme } from '../context/ThemeContext';
+import { fmt } from '../utils/format';
 
 const PAGES = [
   { label: 'Dashboard',    path: '/',             icon: HomeIcon },
@@ -18,7 +19,7 @@ const PAGES = [
   { label: 'Settings',     path: '/settings',     icon: Cog6ToothIcon },
 ];
 
-const fmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+
 
 export default function GlobalSearch({ searchBg, topbarBorder, searchColor, textMuted }) {
   const { transactions, accounts } = useData();

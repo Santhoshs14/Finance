@@ -229,7 +229,7 @@ export default function Settings() {
                 {['bank','wallet','broker','cash','other'].map(t => <option key={t} value={t}>{t}</option>)}
               </select>
               <div className="flex gap-2">
-                <input type="number" value={form.balance} onChange={e => setForm({...form, balance: e.target.value})} className="input-field" placeholder="Balance" required />
+                <input type="number" step="0.01" value={form.balance} onChange={e => setForm({...form, balance: e.target.value})} className="input-field" placeholder="Balance" required />
                 <button type="submit" className="btn-primary px-4">{editId ? 'Update' : 'Save'}</button>
               </div>
             </motion.form>

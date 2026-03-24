@@ -382,7 +382,7 @@ export default function CreditCards() {
                 </div>
                 <div>
                   <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Credit Limit (₹)</label>
-                  <input required type="number" min="0" value={cardForm.credit_limit} onChange={e => setCardForm({...cardForm, credit_limit: e.target.value})} className="input-field w-full" placeholder="100000" />
+                  <input required type="number" step="0.01" min="0" value={cardForm.credit_limit} onChange={e => setCardForm({...cardForm, credit_limit: e.target.value})} className="input-field w-full" placeholder="100000.00" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>

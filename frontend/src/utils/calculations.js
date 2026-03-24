@@ -21,13 +21,14 @@ export const calculateNetWorth = (accounts, investments, lendingItems = []) => {
     .filter(l => l.type === 'borrowed' && l.status !== 'paid')
     .reduce((sum, l) => sum + ((l.amount || 0) - (l.paid_amount || 0)), 0);
 
+  const r = (v) => Math.round(v * 100) / 100;
   return {
-    total_accounts: totalAccountBalance,
-    total_investments: totalInvestmentValue,
-    total_cc_outstanding: ccOutstanding,
-    total_lent: lentAmount,
-    total_borrowed: borrowedAmount,
-    net_worth: totalAccountBalance + totalInvestmentValue + lentAmount - ccOutstanding - borrowedAmount,
+    total_accounts:       r(totalAccountBalance),
+    total_investments:    r(totalInvestmentValue),
+    total_cc_outstanding: r(ccOutstanding),
+    total_lent:           r(lentAmount),
+    total_borrowed:       r(borrowedAmount),
+    net_worth:            r(totalAccountBalance + totalInvestmentValue + lentAmount - ccOutstanding - borrowedAmount),
   };
 };
 
@@ -42,10 +43,11 @@ export const calculateTotalLiabilities = (accounts, lendingItems = []) => {
   const borrowedAmount = lendingItems
     .filter(l => l.type === 'borrowed' && l.status !== 'paid')
     .reduce((sum, l) => sum + ((l.amount || 0) - (l.paid_amount || 0)), 0);
+  const r = (v) => Math.round(v * 100) / 100;
   return {
-    cc_outstanding: ccOutstanding,
-    borrowed: borrowedAmount,
-    total: ccOutstanding + borrowedAmount,
+    cc_outstanding: r(ccOutstanding),
+    borrowed:       r(borrowedAmount),
+    total:          r(ccOutstanding + borrowedAmount),
   };
 };
 
@@ -54,9 +56,9 @@ export const calculateSavingsRateFromAggregates = (aggregate) => {
   const income = aggregate?.totalIncome || 0;
   const expenses = aggregate?.totalSpent || 0;
   if (income === 0) return { income, expenses, savings: 0, savings_rate: 0 };
-  const savings = income - expenses;
-  const savings_rate = ((savings / income) * 100).toFixed(2);
-  return { income, expenses, savings, savings_rate: parseFloat(savings_rate) };
+  const savings = Math.round((income - expenses) * 100) / 100;
+  const savings_rate = parseFloat(((savings / income) * 100).toFixed(2));
+  return { income, expenses, savings, savings_rate };
 };
 
 export const calculateBudgetUsageFromAggregates = (budgets, aggregate) => {
@@ -66,11 +68,12 @@ export const calculateBudgetUsageFromAggregates = (budgets, aggregate) => {
     const usage_percentage = budget.monthly_limit > 0
       ? parseFloat(((spent / budget.monthly_limit) * 100).toFixed(2))
       : 0;
+    const remaining = Math.round((budget.monthly_limit - spent) * 100) / 100;
     return {
       category: budget.category,
       monthly_limit: budget.monthly_limit,
-      spent,
-      remaining: budget.monthly_limit - spent,
+      spent: Math.round(spent * 100) / 100,
+      remaining,
       usage_percentage,
       over_budget: spent > budget.monthly_limit,
     };
@@ -105,12 +108,13 @@ export const calculateInvestmentPL = (investments) => {
       ? parseFloat(((profit_loss / invested) * 100).toFixed(2))
       : 0;
 
+    const r = (v) => Math.round(v * 100) / 100;
     return {
       name: inv.name,
       investment_type: inv.investment_type,
-      invested,
-      current_value: current,
-      profit_loss,
+      invested:      r(invested),
+      current_value: r(current),
+      profit_loss:   r(profit_loss),
       pl_percentage,
     };
   });
@@ -238,7 +242,7 @@ export const calculateSIPGrowth = (monthlyAmount, annualReturnRate, years) => {
 };
 
 export const calculateGoalCompletion = (goal) => {
-  const remaining = goal.target_amount - goal.current_amount;
+  const remaining = Math.round((goal.target_amount - goal.current_amount) * 100) / 100;
   const progress = goal.target_amount > 0
     ? parseFloat(((goal.current_amount / goal.target_amount) * 100).toFixed(2))
     : 0;

@@ -93,7 +93,7 @@ export default function Lending() {
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card p-6 mb-6">
           <form onSubmit={handleAdd} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 items-end">
             <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Person</label><input value={form.person_name} onChange={e => setForm({...form, person_name: e.target.value})} className="input-field" required /></div>
-            <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Amount</label><input type="number" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} className="input-field" required /></div>
+            <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Amount</label><input type="number" step="0.01" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} className="input-field" required /></div>
             <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Type</label><select value={form.type} onChange={e => setForm({...form, type: e.target.value})} className="input-field"><option value="lent">Lent</option><option value="borrowed">Borrowed</option></select></div>
             <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Date</label><input type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} className="input-field" required /></div>
             <button type="submit" className="btn-primary">Add</button>
@@ -135,7 +135,7 @@ export default function Lending() {
                       </div>
                       {repayForm.id === r.id ? (
                         <form onSubmit={(e) => handleRepay(e, r.id)} className="flex gap-2">
-                          <input type="number" value={repayForm.amount} onChange={e => setRepayForm({ ...repayForm, amount: e.target.value })} placeholder={`Max ₹${pendingAmount}`} max={pendingAmount} className="input-field py-1 text-sm flex-1" required />
+                          <input type="number" step="0.01" value={repayForm.amount} onChange={e => setRepayForm({ ...repayForm, amount: e.target.value })} placeholder={`Max ₹${pendingAmount}`} max={pendingAmount} className="input-field py-1 text-sm flex-1" required />
                           <button type="submit" className="btn-primary py-1 px-3 text-sm">Save</button>
                           <button type="button" onClick={() => setRepayForm({ id: null, amount: '' })} className="btn-secondary py-1 px-3 text-sm">Cancel</button>
                         </form>

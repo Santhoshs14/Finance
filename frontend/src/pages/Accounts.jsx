@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useData } from '../context/DataContext';
 import { useTheme } from '../context/ThemeContext';
@@ -6,7 +7,7 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'rec
 import { 
   BanknotesIcon, CreditCardIcon, PlusIcon, 
   ArrowTrendingUpIcon, ArrowTrendingDownIcon, 
-  WalletIcon, CircleStackIcon
+  WalletIcon, CircleStackIcon, Cog6ToothIcon, CreditCardIcon as CreditCardSolid
 } from '@heroicons/react/24/outline';
 import TransactionTable from '../components/TransactionTable';
 import QuickAddTransaction from '../components/QuickAddTransaction';
@@ -136,110 +137,154 @@ export default function Accounts() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4 sm:gap-6 items-start">
-        
-        {/* Left Col: Account List */}
-        <div className="glass-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {allAccounts.length === 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 20px', textAlign: 'center' }} className="glass-card">
+          <div style={{ width: 80, height: 80, borderRadius: 24, background: isDark ? 'rgba(59,130,246,0.1)' : '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
+            <WalletIcon style={{ width: 40, height: 40, color: '#3b82f6' }} />
+          </div>
+          <h2 style={{ fontSize: 22, fontWeight: 800, color: textMain, margin: '0 0 12px 0' }}>No Accounts Found</h2>
+          <p style={{ fontSize: 15, color: textSub, maxWidth: 400, margin: '0 0 32px 0', lineHeight: 1.6 }}>
+            You haven't added any bank accounts or credit cards yet. Start by setting up your financial profile.
+          </p>
           
-          {bankAccounts.length > 0 && (
-            <>
-              <span style={{ fontSize: 13, fontWeight: 700, color: textSub, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 8px', marginTop: 8 }}>Bank Accounts</span>
-              {bankAccounts.map(acc => renderAccountBtn(acc, false))}
-            </>
-          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, width: '100%', maxWidth: 500 }}>
+            <Link 
+              to="/settings" 
+              style={{ 
+                textDecoration: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: 20, 
+                borderRadius: 20, background: isDark ? 'rgba(255,255,255,0.03)' : '#f9fafb', border: `1px solid ${border}`,
+                transition: 'all 0.2s',
+              }}
+              onMouseOver={(e) => e.currentTarget.style.borderColor = '#1abf94'}
+              onMouseOut={(e) => e.currentTarget.style.borderColor = border}
+            >
+              <Cog6ToothIcon style={{ width: 24, height: 24, color: '#1abf94' }} />
+              <span style={{ fontWeight: 700, color: textMain }}>Add Bank Account</span>
+              <span style={{ fontSize: 12, color: textSub }}>Go to Settings</span>
+            </Link>
 
-          {creditAccounts.length > 0 && (
-            <>
-              <div style={{ height: 1, background: border, margin: '8px 0' }} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: textSub, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 8px' }}>Credit Cards</span>
-              {creditAccounts.map(acc => renderAccountBtn(acc, true))}
-            </>
-          )}
-
+            <Link 
+              to="/credit-cards" 
+              style={{ 
+                textDecoration: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: 20, 
+                borderRadius: 20, background: isDark ? 'rgba(255,255,255,0.03)' : '#f9fafb', border: `1px solid ${border}`,
+                transition: 'all 0.2s',
+              }}
+              onMouseOver={(e) => e.currentTarget.style.borderColor = '#f59e0b'}
+              onMouseOut={(e) => e.currentTarget.style.borderColor = border}
+            >
+              <CreditCardIcon style={{ width: 24, height: 24, color: '#f59e0b' }} />
+              <span style={{ fontWeight: 700, color: textMain }}>Add Credit Card</span>
+              <span style={{ fontSize: 12, color: textSub }}>Credit Cards Page</span>
+            </Link>
+          </div>
         </div>
-
-        {/* Right Col: Account Details */}
-        {selectedAccount && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4 sm:gap-6 items-start">
+          
+          {/* Left Col: Account List */}
+          <div className="glass-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
             
-            {/* Top Stats */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5">
-              <div className="glass-card" style={{ padding: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <WalletIcon style={{ width: 16, height: 16, color: '#3b82f6' }} />
-                  </div>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: textSub, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    {selectedAccount.type === 'credit' ? 'Outstanding Liability' : 'Available Balance'}
-                  </span>
-                </div>
-                <p style={{ fontSize: 32, fontWeight: 800, color: textMain, margin: 0, letterSpacing: '-1px' }}>
-                  {fmt(selectedAccount.type === 'credit' ? accountStats.ccOutstanding : selectedAccount.balance)}
-                </p>
-              </div>
+            {bankAccounts.length > 0 && (
+              <>
+                <span style={{ fontSize: 13, fontWeight: 700, color: textSub, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 8px', marginTop: 8 }}>Bank Accounts</span>
+                {bankAccounts.map(acc => renderAccountBtn(acc, false))}
+              </>
+            )}
 
-              <div className="glass-card" style={{ padding: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(26,191,148,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <ArrowTrendingUpIcon style={{ width: 16, height: 16, color: '#1abf94' }} />
-                  </div>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: textSub, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total In</span>
-                </div>
-                <p style={{ fontSize: 24, fontWeight: 700, color: '#1abf94', margin: 0 }}>{fmt(accountStats.income)}</p>
-              </div>
-
-              <div className="glass-card" style={{ padding: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(2ef4444,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <ArrowTrendingDownIcon style={{ width: 16, height: 16, color: '#ef4444' }} />
-                  </div>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: textSub, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Out</span>
-                </div>
-                <p style={{ fontSize: 24, fontWeight: 700, color: '#ef4444', margin: 0 }}>{fmt(accountStats.expense)}</p>
-              </div>
-            </div>
-
-            {/* Chart */}
-            <div className="glass-card" style={{ padding: 24 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                <div>
-                  <h3 style={{ fontSize: 16, fontWeight: 600, color: textMain, margin: '0 0 4px 0' }}>Activity Timeline</h3>
-                  <p style={{ fontSize: 12, color: textSub, margin: 0 }}>Recent {selectedAccount.type === 'credit' ? 'liability' : 'balance'} fluctuations</p>
-                </div>
-              </div>
-              <div className="h-[250px] sm:h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                  <AreaChart data={accountStats.chartData}>
-                    <defs>
-                      <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={selectedAccount.type === 'credit' ? '#f59e0b' : '#3b82f6'} stopOpacity={0.3} />
-                        <stop offset="95%" stopColor={selectedAccount.type === 'credit' ? '#f59e0b' : '#3b82f6'} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: textSub, fontSize: 11 }} />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fill: textSub, fontSize: 11 }} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} width={45} />
-                    <Tooltip content={<CustomTooltip isDark={isDark} />} />
-                    <Area type="monotone" dataKey="value" stroke={selectedAccount.type === 'credit' ? '#f59e0b' : '#3b82f6'} strokeWidth={3} fillOpacity={1} fill="url(#colorVal)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Transactions */}
-            <div className="glass-card" style={{ padding: 24 }}>
-              <h3 style={{ fontSize: 16, fontWeight: 600, color: textMain, margin: '0 0 16px 0' }}>Recent Transactions</h3>
-              <TransactionTable transactions={accountStats.recentTxns} />
-              {accountStats.recentTxns.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                  <CircleStackIcon style={{ width: 40, height: 40, color: border, margin: '0 auto 12px' }} />
-                  <p style={{ color: textSub, fontSize: 14 }}>No transactions found for this account.</p>
-                </div>
-              )}
-            </div>
+            {creditAccounts.length > 0 && (
+              <>
+                <div style={{ height: 1, background: border, margin: '8px 0' }} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: textSub, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 8px' }}>Credit Cards</span>
+                {creditAccounts.map(acc => renderAccountBtn(acc, true))}
+              </>
+            )}
 
           </div>
-        )}
-      </div>
+
+          {/* Right Col: Account Details */}
+          {selectedAccount && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              
+              {/* Top Stats */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5">
+                <div className="glass-card" style={{ padding: 20 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <WalletIcon style={{ width: 16, height: 16, color: '#3b82f6' }} />
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: textSub, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      {selectedAccount.type === 'credit' ? 'Outstanding Liability' : 'Available Balance'}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 32, fontWeight: 800, color: textMain, margin: 0, letterSpacing: '-1px' }}>
+                    {fmt(selectedAccount.type === 'credit' ? accountStats.ccOutstanding : selectedAccount.balance)}
+                  </p>
+                </div>
+
+                <div className="glass-card" style={{ padding: 20 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(26,191,148,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <ArrowTrendingUpIcon style={{ width: 16, height: 16, color: '#1abf94' }} />
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: textSub, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total In</span>
+                  </div>
+                  <p style={{ fontSize: 24, fontWeight: 700, color: '#1abf94', margin: 0 }}>{fmt(accountStats.income)}</p>
+                </div>
+
+                <div className="glass-card" style={{ padding: 20 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(2ef4444,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <ArrowTrendingDownIcon style={{ width: 16, height: 16, color: '#ef4444' }} />
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: textSub, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Out</span>
+                  </div>
+                  <p style={{ fontSize: 24, fontWeight: 700, color: '#ef4444', margin: 0 }}>{fmt(accountStats.expense)}</p>
+                </div>
+              </div>
+
+              {/* Chart */}
+              <div className="glass-card" style={{ padding: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                  <div>
+                    <h3 style={{ fontSize: 16, fontWeight: 600, color: textMain, margin: '0 0 4px 0' }}>Activity Timeline</h3>
+                    <p style={{ fontSize: 12, color: textSub, margin: 0 }}>Recent {selectedAccount.type === 'credit' ? 'liability' : 'balance'} fluctuations</p>
+                  </div>
+                </div>
+                <div className="h-[250px] sm:h-[300px] w-full">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+                    <AreaChart data={accountStats.chartData}>
+                      <defs>
+                        <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={selectedAccount.type === 'credit' ? '#f59e0b' : '#3b82f6'} stopOpacity={0.3} />
+                          <stop offset="95%" stopColor={selectedAccount.type === 'credit' ? '#f59e0b' : '#3b82f6'} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: textSub, fontSize: 11 }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fill: textSub, fontSize: 11 }} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} width={45} />
+                      <Tooltip content={<CustomTooltip isDark={isDark} />} />
+                      <Area type="monotone" dataKey="value" stroke={selectedAccount.type === 'credit' ? '#f59e0b' : '#3b82f6'} strokeWidth={3} fillOpacity={1} fill="url(#colorVal)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Transactions */}
+              <div className="glass-card" style={{ padding: 24 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 600, color: textMain, margin: '0 0 16px 0' }}>Recent Transactions</h3>
+                <TransactionTable transactions={accountStats.recentTxns} />
+                {accountStats.recentTxns.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                    <CircleStackIcon style={{ width: 40, height: 40, color: border, margin: '0 auto 12px' }} />
+                    <p style={{ color: textSub, fontSize: 14 }}>No transactions found for this account.</p>
+                  </div>
+                )}
+              </div>
+
+            </div>
+          )}
+        </div>
+      )}
 
       <AnimatePresence>
         {showQuickAdd && (

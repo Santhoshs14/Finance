@@ -5,9 +5,9 @@ import Sidebar from './Sidebar';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { transactionsAPI } from '../services/api';
+import GlobalSearch from '../components/GlobalSearch';
 import {
   Bars3Icon,
-  MagnifyingGlassIcon,
   UserIcon,
   Cog6ToothIcon,
   ArrowDownTrayIcon,
@@ -37,7 +37,6 @@ export default function MainLayout() {
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -114,13 +113,13 @@ export default function MainLayout() {
             <Bars3Icon style={{ width: 24, height: 24 }} />
           </button>
 
-          {/* Search */}
-          <div className="flex-1 max-w-[200px] sm:max-w-[400px] relative">
-            <MagnifyingGlassIcon style={{ width: 16, height: 16, color: textMuted, position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
-            <input type="text" placeholder="Search analytics, transactions..." value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)} className="input-field"
-              style={{ width: '100%', background: searchBg, border: `1px solid ${topbarBorder}`, borderRadius: 12, padding: '10px 14px 10px 40px', fontSize: 13, color: searchColor, fontFamily: 'inherit' }} />
-          </div>
+          {/* Global Search */}
+          <GlobalSearch
+            searchBg={searchBg}
+            topbarBorder={topbarBorder}
+            searchColor={searchColor}
+            textMuted={textMuted}
+          />
 
           <div style={{ flex: 1 }} />
 

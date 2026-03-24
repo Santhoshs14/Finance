@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 
 // Firebase config loaded from environment variables (VITE_ prefix required for Vite)
 // Set these in .env.local (never commit .env.local to Git)
@@ -24,15 +24,10 @@ if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
-
-// Enable offline persistence
-enableIndexedDbPersistence(db).catch((err) => {
-  if (err.code === 'failed-precondition') {
-    console.warn('Persistence failed: Multiple tabs open');
-  } else if (err.code === 'unimplemented') {
-    console.warn('Persistence not supported by this browser');
-  }
+export const db = initializeFirestore(app, {
+  cache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
 });
 
 export default app;

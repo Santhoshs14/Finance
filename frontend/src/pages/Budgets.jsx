@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
@@ -9,7 +9,9 @@ import {
   BanknotesIcon, SparklesIcon,
   PlusIcon, TrashIcon, InformationCircleIcon,
   ArrowTrendingUpIcon, ExclamationTriangleIcon, ShieldCheckIcon,
+  Bars3Icon,
 } from '@heroicons/react/24/outline';
+import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 
 import { fmt } from '../utils/format';
@@ -245,6 +247,7 @@ function BudgetCard({ cat, limit, spent = 0, salary, isDark, onSave, cycleInfo }
 export default function Budgets() {
   const { isDark } = useTheme();
   const { categories, currentAggregate, cycleStartDay, monthlySalary } = useData();
+  const { currentUser } = useAuth();
 
   const cycle = useMemo(() => getFinancialCycle(new Date(), cycleStartDay), [cycleStartDay]);
   const cycleKey = cycle.cycleKey;
@@ -253,6 +256,45 @@ export default function Budgets() {
   // Budget limits per categoryId
   const [limits, setLimits]               = useState({});   // { [categoryId]: number }
   const [snapshotLoading, setSnapshotLoading] = useState(true);
+
+  // ── Drag-to-reorder ──
+  const [reorderMode, setReorderMode] = useState(false);
+  const [cardOrder, setCardOrder]     = useState([]);   // array of category ids
+  const dragItem   = useRef(null);
+  const dragOver   = useRef(null);
+
+  const STORAGE_KEY = `wf_budget_order_${currentUser?.uid}`;
+
+  // Load saved order from localStorage
+  useEffect(() => {
+    if (!currentUser) return;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) setCardOrder(JSON.parse(saved));
+    } catch {}
+  }, [currentUser, STORAGE_KEY]);
+
+  // Persist order whenever it changes
+  useEffect(() => {
+    if (!currentUser || cardOrder.length === 0) return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cardOrder));
+  }, [cardOrder, currentUser, STORAGE_KEY]);
+
+  const handleDragStart = (id) => { dragItem.current = id; };
+  const handleDragEnter = (id) => { dragOver.current = id; };
+  const handleDragEnd   = () => {
+    if (!dragItem.current || !dragOver.current || dragItem.current === dragOver.current) return;
+    setCardOrder(prev => {
+      const arr = prev.length ? [...prev] : enriched.map(e => e.cat.id);
+      const from = arr.indexOf(dragItem.current);
+      const to   = arr.indexOf(dragOver.current);
+      if (from === -1 || to === -1) return prev;
+      arr.splice(to, 0, arr.splice(from, 1)[0]);
+      return arr;
+    });
+    dragItem.current = null;
+    dragOver.current = null;
+  };
 
   // Salary
   const handleSalaryEdit = async (val) => {
@@ -345,14 +387,22 @@ export default function Budgets() {
     return currentAggregate?.categoryBreakdown || {};
   }, [currentAggregate]);
 
-  const enriched = useMemo(() =>
-    spendingCategories.map(cat => ({
+  const enriched = useMemo(() => {
+    const base = spendingCategories.map(cat => ({
       cat,
       limit: limits[cat.id] || 0,
       spent: spendMap[cat.name] || 0,
-    })),
-    [spendingCategories, limits, spendMap]
-  );
+    }));
+    if (!cardOrder.length) return base;
+    // Sort by saved order; new categories not yet in order go to end
+    const indexMap = {};
+    cardOrder.forEach((id, i) => { indexMap[id] = i; });
+    return [...base].sort((a, b) => {
+      const ia = indexMap[a.cat.id] ?? 9999;
+      const ib = indexMap[b.cat.id] ?? 9999;
+      return ia - ib;
+    });
+  }, [spendingCategories, limits, spendMap, cardOrder]);
 
   const totalBudgeted = enriched.reduce((s, b) => s + b.limit, 0);
   const totalSpent    = enriched.reduce((s, b) => s + b.spent, 0);
@@ -420,18 +470,51 @@ export default function Budgets() {
         ))}
       </div>
 
-      {/* ─── Add Category ─── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+      {/* ─── Add Category + Reorder ─── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
         <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: textMain }}>
           {spendingCategories.length} Categories
         </p>
-        <button
-          onClick={() => setShowAddCat(v => !v)}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 10, background: isDark ? '#1a2235' : '#ecfdf5', border: `1px solid ${isDark ? '#1e3a5f' : '#6ee7b7'}`, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: isDark ? '#1abf94' : '#065f46', fontFamily: 'inherit' }}
-        >
-          <PlusIcon style={{ width: 14, height: 14 }} /> Add Category
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={() => setReorderMode(v => !v)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 10,
+              background: reorderMode ? (isDark ? '#1a3a5f' : '#eff6ff') : (isDark ? '#1a2235' : '#f3f4f6'),
+              border: `1px solid ${reorderMode ? '#3b82f6' : (isDark ? '#252f3e' : '#e5e7eb')}`,
+              cursor: 'pointer', fontSize: 13, fontWeight: 600,
+              color: reorderMode ? '#3b82f6' : textSub,
+              fontFamily: 'inherit', transition: 'all 0.2s',
+            }}
+          >
+            <Bars3Icon style={{ width: 14, height: 14 }} />
+            {reorderMode ? 'Done Reordering' : 'Reorder'}
+          </button>
+          <button
+            onClick={() => setShowAddCat(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 10, background: isDark ? '#1a2235' : '#ecfdf5', border: `1px solid ${isDark ? '#1e3a5f' : '#6ee7b7'}`, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: isDark ? '#1abf94' : '#065f46', fontFamily: 'inherit' }}
+          >
+            <PlusIcon style={{ width: 14, height: 14 }} /> Add Category
+          </button>
+        </div>
       </div>
+
+      {/* Reorder hint */}
+      <AnimatePresence>
+        {reorderMode && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+            style={{ overflow: 'hidden', marginBottom: 12 }}
+          >
+            <div style={{ padding: '10px 14px', borderRadius: 10, background: isDark ? '#0c1824' : '#eff6ff', border: `1px solid ${isDark ? '#1e3a5f' : '#bfdbfe'}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Bars3Icon style={{ width: 14, height: 14, color: '#3b82f6', flexShrink: 0 }} />
+              <p style={{ margin: 0, fontSize: 12, color: isDark ? '#93c5fd' : '#1e40af' }}>
+                Drag the <strong>⠿ handle</strong> on any card to reorder. Your layout is saved automatically.
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showAddCat && (
@@ -471,24 +554,50 @@ export default function Budgets() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
           {enriched.map(({ cat, limit, spent }) => (
-            <div key={cat.id} style={{ position: 'relative' }}>
+            <div
+              key={cat.id}
+              style={{ position: 'relative', opacity: 1, transition: 'opacity 0.15s' }}
+              draggable={reorderMode}
+              onDragStart={() => handleDragStart(cat.id)}
+              onDragEnter={() => handleDragEnter(cat.id)}
+              onDragEnd={handleDragEnd}
+              onDragOver={e => e.preventDefault()}
+            >
+              {/* Drag handle — only visible in reorder mode */}
+              {reorderMode && (
+                <div
+                  title="Drag to reorder"
+                  style={{
+                    position: 'absolute', top: 10, left: 10, zIndex: 10,
+                    width: 26, height: 26, borderRadius: 6,
+                    background: isDark ? '#1e3a5f' : '#dbeafe',
+                    border: '1px solid #3b82f6',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'grab', color: '#3b82f6',
+                  }}
+                >
+                  <Bars3Icon style={{ width: 13, height: 13 }} />
+                </div>
+              )}
               <BudgetCard
                 cat={cat} limit={limit} spent={spent} salary={monthlySalary}
                 isDark={isDark} onSave={handleSaveLimit} cycleInfo={cycleInfo}
               />
-              <button
-                onClick={() => handleDeleteCategory(cat.id, cat.name)}
-                title="Remove category"
-                style={{
-                  position: 'absolute', top: 8, right: 8, width: 22, height: 22,
-                  border: 'none', borderRadius: 6, background: isDark ? '#1e2732' : '#fee2e2',
-                  color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.5,
-                }}
-                onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                onMouseLeave={e => e.currentTarget.style.opacity = '0.5'}
-              >
-                <TrashIcon style={{ width: 11, height: 11 }} />
-              </button>
+              {!reorderMode && (
+                <button
+                  onClick={() => handleDeleteCategory(cat.id, cat.name)}
+                  title="Remove category"
+                  style={{
+                    position: 'absolute', top: 8, right: 8, width: 22, height: 22,
+                    border: 'none', borderRadius: 6, background: isDark ? '#1e2732' : '#fee2e2',
+                    color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.5,
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                  onMouseLeave={e => e.currentTarget.style.opacity = '0.5'}
+                >
+                  <TrashIcon style={{ width: 11, height: 11 }} />
+                </button>
+              )}
             </div>
           ))}
         </div>

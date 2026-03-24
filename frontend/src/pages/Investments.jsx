@@ -8,7 +8,8 @@ import { useAuth } from '../context/AuthContext';
 import { db } from '../config/firebase';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import ChartCard from '../components/ChartCard';
-import { investmentsAPI, mutualFundsAPI, calculationsAPI } from '../services/api';
+import { investmentsAPI, mutualFundsAPI, transactionsAPI, goalsAPI } from '../services/api';
+import { calculateInvestmentPL, calculateSIPGrowth } from '../utils/calculations';
 import { PlusIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
@@ -21,12 +22,13 @@ export default function Investments() {
   const [showAddInv, setShowAddInv] = useState(false);
   const [showAddMF, setShowAddMF] = useState(false);
   const [showAddSIP, setShowAddSIP] = useState(false);
-  const [invForm, setInvForm] = useState({ investment_type: 'stocks', name: '', symbol: '', quantity: '', buy_price: '', current_price: '' });
-  const [mfForm, setMfForm] = useState({ fund_name: '', nav: '', units: '', sip_amount: '', investment_date: new Date().toISOString().split('T')[0] });
+  const [invForm, setInvForm] = useState({ investment_type: 'stocks', name: '', symbol: '', quantity: '', buy_price: '', current_price: '', linked_goal_id: '', account_id: '' });
+  const [mfForm, setMfForm] = useState({ fund_name: '', nav: '', units: '', sip_amount: '', investment_date: new Date().toISOString().split('T')[0], linked_goal_id: '', account_id: '' });
   const [sipForm, setSipForm] = useState({ fund_id: '', monthly_amount: '', start_date: new Date().toISOString().split('T')[0] });
   const [tab, setTab] = useState('investments');
 
   const { currentUser } = useAuth();
+  const { goals, accounts } = useData();
   const [investments, setInvestments] = useState([]);
   const [mutualFunds, setMutualFunds] = useState([]);
   const [sips, setSips] = useState([]);
@@ -56,21 +58,28 @@ export default function Investments() {
 
     return () => { unsubInv(); unsubMF(); unsubSIP(); };
   }, [currentUser]);
-  const { data: calculations = null, isLoading: calcLoading } = useQuery({ queryKey: ['calculations'], queryFn: async () => { try { const res = await calculationsAPI.get(); return res.data.data; } catch(e) { return null; } } });
-
-  const loading = invLoading || mfLoading || sipLoading || calcLoading;
+  const loading = invLoading || mfLoading || sipLoading;
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['investments'] });
     queryClient.invalidateQueries({ queryKey: ['mutualFunds'] });
     queryClient.invalidateQueries({ queryKey: ['sips'] });
-    queryClient.invalidateQueries({ queryKey: ['calculations'] });
   };
 
   const addInvMutation = useMutation({
-    mutationFn: (data) => investmentsAPI.create(data),
-    onSuccess: () => { invalidateAll(); toast.success('Investment added!'); setShowAddInv(false); setInvForm({ investment_type: 'stocks', name: '', symbol: '', quantity: '', buy_price: '', current_price: '' }); },
-    onError: () => toast.error('Failed')
+    mutationFn: async (data) => {
+      const amount = data.quantity * data.buy_price;
+      if (data.account_id) {
+        await transactionsAPI.create({ amount: -amount, category: 'Investment', account_id: data.account_id, date: new Date().toISOString().split('T')[0], payment_type: 'Transfer', notes: `Purchased ${data.name}` });
+      }
+      if (data.linked_goal_id) {
+        const goal = goals.find(g => g.id === data.linked_goal_id);
+        if (goal) await goalsAPI.update(goal.id, { current_amount: (goal.current_amount || 0) + amount });
+      }
+      return investmentsAPI.create(data);
+    },
+    onSuccess: () => { invalidateAll(); toast.success('Investment added!'); setShowAddInv(false); setInvForm({ investment_type: 'stocks', name: '', symbol: '', quantity: '', buy_price: '', current_price: '', linked_goal_id: '', account_id: '' }); },
+    onError: () => toast.error('Failed to add investment')
   });
 
   const syncMutation = useMutation({
@@ -80,9 +89,19 @@ export default function Investments() {
   });
 
   const addMFMutation = useMutation({
-    mutationFn: (data) => mutualFundsAPI.create(data),
-    onSuccess: () => { invalidateAll(); toast.success('Mutual fund added!'); setShowAddMF(false); },
-    onError: () => toast.error('Failed')
+    mutationFn: async (data) => {
+      const amount = data.units * data.nav;
+      if (data.account_id) {
+        await transactionsAPI.create({ amount: -amount, category: 'Investment', account_id: data.account_id, date: data.investment_date || new Date().toISOString().split('T')[0], payment_type: 'Transfer', notes: `Purchased MF: ${data.fund_name}` });
+      }
+      if (data.linked_goal_id) {
+        const goal = goals.find(g => g.id === data.linked_goal_id);
+        if (goal) await goalsAPI.update(goal.id, { current_amount: (goal.current_amount || 0) + amount });
+      }
+      return mutualFundsAPI.create(data);
+    },
+    onSuccess: () => { invalidateAll(); toast.success('Mutual fund added!'); setShowAddMF(false); setMfForm({ fund_name: '', nav: '', units: '', sip_amount: '', investment_date: new Date().toISOString().split('T')[0], linked_goal_id: '', account_id: '' }); },
+    onError: () => toast.error('Failed to add MF')
   });
 
   const addSIPMutation = useMutation({
@@ -95,9 +114,16 @@ export default function Investments() {
   const handleAddMF = (e) => { e.preventDefault(); addMFMutation.mutate({ ...mfForm, nav: parseFloat(mfForm.nav), units: parseFloat(mfForm.units), sip_amount: mfForm.sip_amount ? parseFloat(mfForm.sip_amount) : 0 }); };
   const handleAddSIP = (e) => { e.preventDefault(); addSIPMutation.mutate({ ...sipForm, monthly_amount: parseFloat(sipForm.monthly_amount) }); };
 
-  const plData = calculations?.investment_pl || [];
-  const portfolioData = investments.map((inv, i) => ({ name: inv.name, value: inv.current_price * inv.quantity, fill: COLORS[i % COLORS.length] }));
+  const plData = calculateInvestmentPL(investments);
+  const portfolioData = investments.map((inv, i) => ({ name: inv.name, value: (inv.current_price * inv.quantity) || inv.current_value || inv.value || 0, fill: COLORS[i % COLORS.length] }));
   const plChartData = plData.map((inv) => ({ name: inv.name, invested: inv.invested, current: inv.current_value, pl: inv.profit_loss }));
+
+  const sipProjections = sips.map(sip => ({
+    monthly_amount: sip.monthly_amount,
+    projection_5yr: calculateSIPGrowth(sip.monthly_amount, 12, 5),
+    projection_10yr: calculateSIPGrowth(sip.monthly_amount, 12, 10),
+    projection_20yr: calculateSIPGrowth(sip.monthly_amount, 12, 20)
+  }));
 
   const tooltipStyle = {
     contentStyle: {
@@ -135,7 +161,7 @@ export default function Investments() {
         <ChartCard title="Portfolio Allocation">
           {portfolioData.length > 0 ? (
             <div className="h-[250px] sm:h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                 <PieChart><Pie data={portfolioData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={3} dataKey="value">
                   {portfolioData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
                 </Pie><Tooltip formatter={(v) => `₹${v.toLocaleString('en-IN')}`} {...tooltipStyle} /></PieChart>
@@ -147,7 +173,7 @@ export default function Investments() {
         <ChartCard title="Profit / Loss">
           {plChartData.length > 0 ? (
             <div className="h-[250px] sm:h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                 <BarChart data={plChartData}><CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
                   <XAxis dataKey="name" stroke={isDark ? '#64748b' : '#94a3b8'} /><YAxis stroke={isDark ? '#64748b' : '#94a3b8'} />
                   <Tooltip formatter={(v) => `₹${v.toLocaleString('en-IN')}`} {...tooltipStyle} />
@@ -178,7 +204,21 @@ export default function Investments() {
                 <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Quantity</label><input type="number" step="0.01" value={invForm.quantity} onChange={(e) => setInvForm({ ...invForm, quantity: e.target.value })} className="input-field" required /></div>
                 <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Buy Price (₹)</label><input type="number" step="0.01" value={invForm.buy_price} onChange={(e) => setInvForm({ ...invForm, buy_price: e.target.value })} className="input-field" required /></div>
                 <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Current Price (₹)</label><input type="number" step="0.01" value={invForm.current_price} onChange={(e) => setInvForm({ ...invForm, current_price: e.target.value })} className="input-field" placeholder="Fallback if API fails" required /></div>
-                <div className="flex items-end lg:col-span-4"><button type="submit" className="btn-primary w-full">Add</button></div>
+                <div>
+                  <label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Pay From (Bank)</label>
+                  <select value={invForm.account_id} onChange={(e) => setInvForm({ ...invForm, account_id: e.target.value })} className="input-field">
+                    <option value="">External / Do not deduct</option>
+                    {accounts.filter(a => a.type !== 'credit').map(a => <option key={a.id} value={a.id}>{a.bank_name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Link to Goal</label>
+                  <select value={invForm.linked_goal_id} onChange={(e) => setInvForm({ ...invForm, linked_goal_id: e.target.value })} className="input-field">
+                    <option value="">None</option>
+                    {goals.map(g => <option key={g.id} value={g.id}>{g.goal_name || g.name}</option>)}
+                  </select>
+                </div>
+                <div className="flex items-end lg:col-span-4"><button type="submit" className="btn-primary w-full">Add Investment</button></div>
               </form>
             </motion.div>
           )}
@@ -215,7 +255,21 @@ export default function Investments() {
                 <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Units</label><input type="number" step="0.01" value={mfForm.units} onChange={(e) => setMfForm({ ...mfForm, units: e.target.value })} className="input-field" required /></div>
                 <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>SIP Amount</label><input type="number" value={mfForm.sip_amount} onChange={(e) => setMfForm({ ...mfForm, sip_amount: e.target.value })} className="input-field" /></div>
                 <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Date</label><input type="date" value={mfForm.investment_date} onChange={(e) => setMfForm({ ...mfForm, investment_date: e.target.value })} className="input-field" required /></div>
-                <div className="flex items-end"><button type="submit" className="btn-primary w-full">Add</button></div>
+                <div>
+                  <label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Pay From (Bank)</label>
+                  <select value={mfForm.account_id} onChange={(e) => setMfForm({ ...mfForm, account_id: e.target.value })} className="input-field">
+                    <option value="">External / Do not deduct</option>
+                    {accounts.filter(a => a.type !== 'credit').map(a => <option key={a.id} value={a.id}>{a.bank_name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Link to Goal</label>
+                  <select value={mfForm.linked_goal_id} onChange={(e) => setMfForm({ ...mfForm, linked_goal_id: e.target.value })} className="input-field">
+                    <option value="">None</option>
+                    {goals.map(g => <option key={g.id} value={g.id}>{g.goal_name || g.name}</option>)}
+                  </select>
+                </div>
+                <div className="flex items-end lg:col-span-3"><button type="submit" className="btn-primary w-full">Add Mutual Fund</button></div>
               </form>
             </motion.div>
           )}
@@ -250,9 +304,9 @@ export default function Investments() {
             </motion.div>
           )}
           {/* SIP Projections */}
-          {calculations?.sip_projections?.length > 0 && (
+          {sipProjections.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-              {calculations.sip_projections.map((sip, i) => (
+              {sipProjections.map((sip, i) => (
                 <motion.div key={i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }} className="glass-card p-5">
                   <h4 className={`font-semibold mb-3 ${isDark ? 'text-white' : 'text-dark-900'}`}>₹{sip.monthly_amount}/month SIP</h4>
                   <div className="space-y-2">
@@ -267,7 +321,7 @@ export default function Investments() {
               ))}
             </div>
           )}
-          {sips.length === 0 && !calculations?.sip_projections?.length && <p className={`text-center py-12 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No SIP plans yet</p>}
+          {sips.length === 0 && <p className={`text-center py-12 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No SIP plans yet</p>}
         </div>
       )}
     </div>

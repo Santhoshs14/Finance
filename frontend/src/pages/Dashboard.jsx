@@ -14,7 +14,7 @@ import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../config/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { transactionsAPI, calculationsAPI } from '../services/api';
+import { transactionsAPI } from '../services/api';
 import { generateInsightsFromAggregates } from '../utils/insights';
 import {
   ArrowUpIcon, ArrowDownIcon, PlusIcon,
@@ -23,18 +23,9 @@ import {
 } from '@heroicons/react/24/outline';
 
 /* ─── Formatting ─── */
-const fmt = (n) => '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n || 0);
+import { fmt } from '../utils/format';
 
-/* ─── Tooltip ─── */
-const CustomTooltip = ({ active, payload, label, isDark }) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div style={{ background: isDark ? '#1f2937' : '#fff', border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`, borderRadius: 10, padding: '10px 14px', fontSize: 13 }}>
-      <p style={{ color: isDark ? '#9ca3af' : '#6b7280', marginBottom: 4, fontWeight: 600 }}>{label}</p>
-      {payload.map((p, i) => <p key={i} style={{ color: p.color, margin: '2px 0' }}>{p.name}: {fmt(p.value)}</p>)}
-    </div>
-  );
-};
+import CustomTooltip from '../components/CustomTooltip';
 
 /* ─── KPI Card ─── */
 const KpiCard = ({ label, value, icon: Icon, color, isDark, isPercent }) => (
@@ -84,9 +75,10 @@ const SpendingHeatmap = ({ transactions, isDark }) => {
     d.setDate(today.getDate() - i);
     days.push(d.toISOString().split('T')[0]);
   }
+  const daysSet = new Set(days);
   const spendByDay = {};
   transactions.forEach(t => {
-    if (t.amount < 0 && days.includes(t.date)) {
+    if (t.amount < 0 && daysSet.has(t.date)) {
       spendByDay[t.date] = (spendByDay[t.date] || 0) + Math.abs(t.amount);
     }
   });
@@ -159,10 +151,7 @@ export default function Dashboard() {
   }, [currentUser]);
 
   const { transactions, accounts, creditCards, categories, cycleStartDay, currentAggregate } = useData();
-  const { data: snapshots = [] } = useQuery({
-    queryKey: ['snapshots'],
-    queryFn: async () => { try { const r = await calculationsAPI.getSnapshots(); return r.data.data || []; } catch { return []; } },
-  });
+  const snapshots = [];
 
   const addTxnMutation = useMutation({
     mutationFn: (data) => transactionsAPI.create(data, cycleStartDay),
@@ -278,7 +267,7 @@ export default function Dashboard() {
           {categoryData.length > 0 ? (
             <>
               <div className="h-[250px] sm:h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <PieChart>
                     <Pie data={categoryData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3} dataKey="value" stroke="none">
                       {categoryData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
@@ -329,7 +318,7 @@ export default function Dashboard() {
             <span style={{ fontSize: 12, color: textSub }}>Historical snapshots</span>
           </div>
           <div className="h-[250px] sm:h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
               <AreaChart data={snapshots.length > 0 ? snapshots : [
                 { date: 'Before', net_worth: netWorth * 0.8 }, { date: 'Now', net_worth: netWorth },
               ]}>

@@ -18,7 +18,7 @@ import {
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
-const fmt = (n) => '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n || 0);
+import { fmt } from '../utils/format';
 
 const CHART_COLORS = ['#6366f1','#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#f97316','#84cc16'];
 
@@ -334,7 +334,7 @@ export default function Reports() {
             {/* Spending by Category */}
             {tab === 'cycle' && categoryData.length > 0 && (
               <ChartCard title="Spending by Category" className="shadow-lg h-[300px] sm:h-[400px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <BarChart data={categoryData.filter(d => d.name !== 'Income')} layout="vertical" margin={{ left: 20, right: 30, top: 10, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={isDark ? '#334155' : '#e2e8f0'} />
                     <XAxis type="number" hide />
@@ -404,7 +404,7 @@ export default function Reports() {
             {/* Category Trend Chart (last 6 cycles) */}
             {tab === 'cycle' && trendChartData.length > 0 && trendCategories.length > 0 && (
               <ChartCard title={<span className="flex items-center gap-2"><ArrowTrendingUpIcon className="w-4 h-4 text-primary-500" /> Category Trend (6 Cycles)</span>} className="shadow-lg h-[250px] sm:h-[320px] lg:col-span-2">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <LineChart data={trendChartData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? '#334155' : '#e2e8f0'} />
                     <XAxis dataKey="label" axisLine={false} tickLine={false}
@@ -433,7 +433,7 @@ export default function Reports() {
             {/* Yearly breakdown */}
             {tab === 'yearly' && monthlyData.length > 0 && (
               <ChartCard title="Cash Flow Breakdown" className="shadow-lg h-[300px] sm:h-[400px] lg:col-span-2">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <BarChart data={monthlyData} margin={{ top: 20, right: 30, left: 10, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? '#334155' : '#e2e8f0'} />
                     <XAxis dataKey="month" axisLine={false} tickLine={false}

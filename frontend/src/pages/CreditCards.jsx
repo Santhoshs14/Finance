@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
-import { accountsAPI, transactionsAPI } from '../services/api';
+import { accountsAPI, creditCardsAPI } from '../services/api';
 import ChartCard from '../components/ChartCard';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { PlusIcon, CreditCardIcon, BanknotesIcon, PencilSquareIcon, CheckBadgeIcon } from '@heroicons/react/24/outline';
@@ -15,7 +15,8 @@ const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 export default function CreditCards() {
   const { isDark } = useTheme();
   const queryClient = useQueryClient();
-  const { creditCards, transactions } = useData();
+  const { accounts, creditCards, transactions, cycleStartDay } = useData();
+  const bankAccounts = useMemo(() => accounts.filter(a => a.type !== 'credit'), [accounts]);
   
   const [showAddCard, setShowAddCard] = useState(false);
   const [showPayBill, setShowPayBill] = useState(false);
@@ -69,23 +70,14 @@ export default function CreditCards() {
 
   const payBillMutation = useMutation({
     mutationFn: async (data) => {
-      // Create expense from bank
-      await transactionsAPI.create({
-        amount: -data.amount,
-        account_id: data.account_id,
-        category: 'Credit Card Payment',
-        date: data.date,
-        notes: `Payment for ${activeCard.account_name}`,
-        payment_type: 'Transfer',
-      });
-      // Create payment (income) to CC
-      await transactionsAPI.create({
+      // Atomic bill payment — single batch handles bank debit, CC credit, and balance updates
+      await creditCardsAPI.payBill({
         amount: data.amount,
-        account_id: activeCardId,
-        category: 'Credit Card Payment',
+        bankAccountId: data.account_id,
+        creditCardId: activeCardId,
         date: data.date,
-        notes: 'Thank you for your payment',
-        payment_type: 'Credit Card',
+        ccName: activeCard.account_name,
+        cycleStartDay,
       });
     },
     onSuccess: () => {
@@ -93,7 +85,7 @@ export default function CreditCards() {
       setShowPayBill(false);
       invalidateAll();
     },
-    onError: () => toast.error('Failed to record payment.')
+    onError: (e) => toast.error(e?.message || 'Failed to record payment.')
   });
 
   const handleCardSubmit = (e) => {
@@ -312,7 +304,7 @@ export default function CreditCards() {
               <h3 className={`font-bold text-lg mb-6 ${isDark ? 'text-white' : 'text-dark-900'}`}>Spending Breakdown</h3>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
                 <div className="h-[250px] sm:h-[300px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                     <PieChart>
                       <Pie data={categoryData} cx="50%" cy="50%" innerRadius={70} outerRadius={100} paddingAngle={4} dataKey="value" cornerRadius={6}>
                         {categoryData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
@@ -433,7 +425,7 @@ export default function CreditCards() {
                   <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>From Bank Account</label>
                   <select required value={payForm.account_id} onChange={e => setPayForm({...payForm, account_id: e.target.value})} className="input-field w-full">
                     <option value="">— Select Source Account —</option>
-                    {useData().accounts.filter(a => a.type !== 'credit').map(a => (
+                    {bankAccounts.map(a => (
                       <option key={a.id} value={a.id}>{a.account_name} (₹{parseFloat(a.balance || 0).toLocaleString('en-IN')})</option>
                     ))}
                   </select>

@@ -7,7 +7,6 @@ import { useAuth } from '../context/AuthContext';
 import { transactionsAPI } from '../services/api';
 import {
   Bars3Icon,
-  BellIcon,
   MagnifyingGlassIcon,
   UserIcon,
   Cog6ToothIcon,
@@ -125,11 +124,7 @@ export default function MainLayout() {
 
           <div style={{ flex: 1 }} />
 
-          {/* Bell */}
-          <button style={{ width: 38, height: 38, borderRadius: 12, background: searchBg, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${topbarBorder}`, cursor: 'pointer', color: textMuted, position: 'relative', flexShrink: 0 }}>
-            <BellIcon style={{ width: 18, height: 18 }} />
-            <span style={{ position: 'absolute', top: 10, right: 10, width: 6, height: 6, borderRadius: '50%', background: '#1abf94' }} />
-          </button>
+
 
           {/* User Menu */}
           <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }}>

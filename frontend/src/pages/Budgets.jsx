@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
-import { budgetSnapshotsAPI, categoriesAPI } from '../services/api';
+import { budgetSnapshotsAPI, categoriesAPI, profileAPI } from '../services/api';
 import { getFinancialCycle, getCycleDayInfo } from '../utils/financialMonth';
 import {
   PencilSquareIcon, CheckIcon, XMarkIcon,
@@ -12,8 +12,7 @@ import {
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
-const SALARY_KEY = 'vault_monthly_salary';
-const fmt = (n) => '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n || 0);
+import { fmt } from '../utils/format';
 
 /* ─── Status helper ─── */
 const getBudgetStatus = (pct) => {
@@ -245,7 +244,7 @@ function BudgetCard({ cat, limit, spent = 0, salary, isDark, onSave, cycleInfo }
 /* ─── Main Budgets Page ─── */
 export default function Budgets() {
   const { isDark } = useTheme();
-  const { categories, currentAggregate, cycleStartDay } = useData();
+  const { categories, currentAggregate, cycleStartDay, monthlySalary } = useData();
 
   const cycle = useMemo(() => getFinancialCycle(new Date(), cycleStartDay), [cycleStartDay]);
   const cycleKey = cycle.cycleKey;
@@ -256,11 +255,13 @@ export default function Budgets() {
   const [snapshotLoading, setSnapshotLoading] = useState(true);
 
   // Salary
-  const [salary, setSalary] = useState(() => {
-    const saved = localStorage.getItem(SALARY_KEY);
-    return saved ? parseFloat(saved) : 98000;
-  });
-  const handleSalaryEdit = (val) => { setSalary(val); localStorage.setItem(SALARY_KEY, String(val)); };
+  const handleSalaryEdit = async (val) => {
+    try {
+      await profileAPI.update({ monthlySalary: val });
+    } catch (e) {
+      toast.error('Failed to update salary');
+    }
+  };
 
   // Add Category UI
   const [showAddCat, setShowAddCat] = useState(false);
@@ -355,7 +356,7 @@ export default function Budgets() {
 
   const totalBudgeted = enriched.reduce((s, b) => s + b.limit, 0);
   const totalSpent    = enriched.reduce((s, b) => s + b.spent, 0);
-  const unbudgeted    = Math.max(0, salary - totalBudgeted);
+  const unbudgeted    = Math.max(0, monthlySalary - totalBudgeted);
   const overBudgetCount = enriched.filter(b => b.limit > 0 && b.spent > b.limit).length;
   const warnCount       = enriched.filter(b => b.limit > 0 && b.spent / b.limit >= 0.8 && b.spent <= b.limit).length;
 
@@ -401,12 +402,12 @@ export default function Budgets() {
       </div>
 
       {/* ─── Salary Banner ─── */}
-      <SalaryBanner salary={salary} onEdit={handleSalaryEdit} isDark={isDark} />
+      <SalaryBanner salary={monthlySalary} onEdit={handleSalaryEdit} isDark={isDark} />
 
       {/* ─── Summary Cards ─── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-5">
         {[
-          { label: 'Salary',      val: fmt(salary),       color: '#1abf94', icon: '💰' },
+          { label: 'Salary',      val: fmt(monthlySalary),       color: '#1abf94', icon: '💰' },
           { label: 'Budgeted',    val: fmt(totalBudgeted), color: '#3b82f6', icon: '📊' },
           { label: 'Spent',       val: fmt(totalSpent),    color: '#ef4444', icon: '💸' },
           { label: 'Unbudgeted',  val: fmt(unbudgeted),    color: '#f59e0b', icon: '🎯' },
@@ -472,7 +473,7 @@ export default function Budgets() {
           {enriched.map(({ cat, limit, spent }) => (
             <div key={cat.id} style={{ position: 'relative' }}>
               <BudgetCard
-                cat={cat} limit={limit} spent={spent} salary={salary}
+                cat={cat} limit={limit} spent={spent} salary={monthlySalary}
                 isDark={isDark} onSave={handleSaveLimit} cycleInfo={cycleInfo}
               />
               <button

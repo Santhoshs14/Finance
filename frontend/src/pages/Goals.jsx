@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
@@ -16,6 +16,11 @@ export default function Goals() {
   const queryClient = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ goal_name: '', target_amount: '', current_amount: '', deadline: '' });
+
+  const [selectedGoal, setSelectedGoal] = useState(null);
+  const [showAddFunds, setShowAddFunds] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [addFundsAmount, setAddFundsAmount] = useState('');
 
   const { currentUser } = useAuth();
   const [goals, setGoals] = useState([]);
@@ -41,10 +46,51 @@ export default function Goals() {
     onError: () => toast.error('Failed')
   });
 
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }) => goalsAPI.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['goals'] });
+      toast.success('Goal updated!');
+      setShowEdit(false); setShowAddFunds(false); setSelectedGoal(null);
+      setForm({ goal_name: '', target_amount: '', current_amount: '', deadline: '' });
+    },
+    onError: () => toast.error('Failed to update goal')
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => goalsAPI.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['goals'] });
+      toast.success('Goal deleted!');
+      setShowEdit(false); setSelectedGoal(null);
+      setForm({ goal_name: '', target_amount: '', current_amount: '', deadline: '' });
+    },
+    onError: () => toast.error('Failed to delete goal')
+  });
+
   const handleAdd = (e) => {
     e.preventDefault();
     addMutation.mutate({ ...form, target_amount: parseFloat(form.target_amount), current_amount: parseFloat(form.current_amount || 0) });
   };
+
+  const handleEdit = (e) => {
+    e.preventDefault();
+    updateMutation.mutate({ id: selectedGoal.id, data: { ...form, target_amount: parseFloat(form.target_amount), current_amount: parseFloat(form.current_amount || 0) } });
+  };
+
+  const handleAddFunds = (e) => {
+    e.preventDefault();
+    const addedAmount = parseFloat(addFundsAmount);
+    if (!addedAmount || addedAmount <= 0) return toast.error('Enter a valid amount');
+    const newTarget = parseFloat(selectedGoal.current_amount || 0) + addedAmount;
+    updateMutation.mutate({ id: selectedGoal.id, data: { current_amount: newTarget } });
+  };
+
+  const goalsWithActions = goals.map(g => ({
+    ...g,
+    onAddFunds: (goal) => { setSelectedGoal(goal); setShowAddFunds(true); setAddFundsAmount(''); },
+    onEdit: (goal) => { setSelectedGoal(goal); setForm({ goal_name: goal.goal_name || goal.name, target_amount: goal.target_amount, current_amount: goal.current_amount, deadline: goal.deadline || '' }); setShowEdit(true); }
+  }));
 
   if (loading) return <div className="flex items-center justify-center h-[60vh]"><div className="w-12 h-12 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>;
 
@@ -73,9 +119,48 @@ export default function Goals() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {goals.map((goal, i) => <GoalCard key={goal.id} goal={goal} delay={i * 0.1} />)}
+        {goalsWithActions.map((goal, i) => <GoalCard key={goal.id} goal={goal} delay={i * 0.1} />)}
       </div>
       {goals.length === 0 && <p className={`text-center py-16 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No goals yet. Set your first financial target!</p>}
+
+      {/* Edit Goal Modal */}
+      {showEdit && selectedGoal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowEdit(false)}>
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className={`w-full max-w-md p-6 rounded-2xl ${isDark ? 'bg-dark-900 border border-dark-800' : 'bg-white shadow-xl'}`} onClick={e => e.stopPropagation()}>
+            <h3 className={`text-xl font-bold mb-4 ${isDark ? 'text-white' : 'text-dark-900'}`}>Edit Goal</h3>
+            <form onSubmit={handleEdit} className="space-y-4">
+              <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Goal Name</label><input value={form.goal_name} onChange={(e) => setForm({ ...form, goal_name: e.target.value })} className="input-field" required /></div>
+              <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Target (₹)</label><input type="number" value={form.target_amount} onChange={(e) => setForm({ ...form, target_amount: e.target.value })} className="input-field" required /></div>
+              <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Current (₹)</label><input type="number" value={form.current_amount} onChange={(e) => setForm({ ...form, current_amount: e.target.value })} className="input-field" required /></div>
+              <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Deadline</label><input type="date" value={form.deadline} onChange={(e) => setForm({ ...form, deadline: e.target.value })} className="input-field" required /></div>
+              <div className="flex gap-3 pt-4">
+                <button type="submit" className="flex-1 btn-primary">Save Changes</button>
+                <button type="button" onClick={() => deleteMutation.mutate(selectedGoal.id)} className="px-4 py-2 font-bold text-danger-500 bg-danger-500/10 hover:bg-danger-500/20 rounded-xl transition-colors">Delete</button>
+                <button type="button" onClick={() => setShowEdit(false)} className="flex-1 btn-secondary">Cancel</button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Add Funds Modal */}
+      {showAddFunds && selectedGoal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowAddFunds(false)}>
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className={`w-full max-w-sm p-6 rounded-2xl ${isDark ? 'bg-dark-900 border border-dark-800' : 'bg-white shadow-xl'}`} onClick={e => e.stopPropagation()}>
+            <h3 className={`text-xl font-bold mb-4 ${isDark ? 'text-white' : 'text-dark-900'}`}>Add Funds to {selectedGoal.goal_name || selectedGoal.name}</h3>
+            <form onSubmit={handleAddFunds} className="space-y-4">
+              <div>
+                <label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Amount (₹)</label>
+                <input type="number" placeholder="Enter amount saved" value={addFundsAmount} onChange={(e) => setAddFundsAmount(e.target.value)} className="input-field text-xl font-bold" autoFocus required />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="submit" className="flex-1 btn-primary bg-primary-500">Deposit</button>
+                <button type="button" onClick={() => setShowAddFunds(false)} className="flex-1 btn-secondary">Cancel</button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,9 +2,55 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{userId} {
+      // Only the authenticated user can access their own data
       allow read, write: if request.auth != null && request.auth.uid == userId;
-      
-      match /{document=**} {
+
+      // ── Transactions ──
+      match /transactions/{transactionId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow create: if request.auth != null && request.auth.uid == userId
+          && request.resource.data.amount is number
+          && request.resource.data.date is string
+          && request.resource.data.keys().hasAll(['amount', 'date']);
+        allow update: if request.auth != null && request.auth.uid == userId
+          && request.resource.data.amount is number;
+        allow delete: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // ── Accounts ──
+      match /accounts/{accountId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow create: if request.auth != null && request.auth.uid == userId
+          && request.resource.data.account_name is string
+          && request.resource.data.account_name.size() > 0;
+        allow update, delete: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // ── Aggregates ──
+      match /aggregates/{cycleKey} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if request.auth != null && request.auth.uid == userId
+          && (!('totalSpent' in request.resource.data) || request.resource.data.totalSpent is number)
+          && (!('totalIncome' in request.resource.data) || request.resource.data.totalIncome is number);
+      }
+
+      // ── Categories ──
+      match /categories/{categoryId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow create: if request.auth != null && request.auth.uid == userId
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 50;
+        allow update, delete: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // ── Budget Snapshots (subcollection) ──
+      match /budgetSnapshots/{cycleKey}/categories/{categoryId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // ── All other subcollections (goals, investments, lending, etc.) ──
+      match /{subcollection}/{documentId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
     }

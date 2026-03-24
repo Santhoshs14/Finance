@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { db } from '../config/firebase';
-import { collection, doc, onSnapshot, query, orderBy, limit, addDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, orderBy, limit, addDoc, writeBatch } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
 import { getFinancialCycle } from '../utils/financialMonth';
 
@@ -36,6 +36,7 @@ export const DataProvider = ({ children }) => {
   const [goals, setGoals]             = useState([]);
   const [lending, setLending]         = useState([]);
   const [cycleStartDay, setCycleStartDay] = useState(25);
+  const [monthlySalary, setMonthlySalary] = useState(0);
   const [currentAggregate, setCurrentAggregate] = useState({
     totalSpent: 0, totalIncome: 0, categoryBreakdown: {},
   });
@@ -57,18 +58,20 @@ export const DataProvider = ({ children }) => {
       setGoals([]);
       setLending([]);
       setCycleStartDay(25);
+      setMonthlySalary(0);
       setCurrentAggregate({ totalSpent: 0, totalIncome: 0, categoryBreakdown: {} });
       return cleanup;
     }
 
     const uid = currentUser.uid;
 
-    // ── Profile (cycleStartDay) ──
+    // ── Profile (cycleStartDay & monthlySalary) ──
     unsubscribes.push(
       onSnapshot(doc(db, `users/${uid}`), (snap) => {
         if (snap.exists()) {
           const data = snap.data();
           setCycleStartDay(data.cycleStartDay || 25);
+          setMonthlySalary(data.monthlySalary || 0);
         }
       })
     );
@@ -80,11 +83,11 @@ export const DataProvider = ({ children }) => {
       })
     );
 
-    // ── Transactions (latest 500) ──
+    // ── Transactions (latest 200) ──
     const txQuery = query(
       collection(db, `users/${uid}/transactions`),
       orderBy('date', 'desc'),
-      limit(50)
+      limit(200)
     );
     unsubscribes.push(
       onSnapshot(txQuery, (snap) => {
@@ -98,9 +101,13 @@ export const DataProvider = ({ children }) => {
     unsubscribes.push(
       onSnapshot(categoriesRef, async (snap) => {
         if (snap.empty) {
-          await Promise.all(DEFAULT_CATEGORIES.map(cat =>
-            addDoc(categoriesRef, { ...cat, createdAt: new Date().toISOString() })
-          ));
+          const batch = writeBatch(db);
+          DEFAULT_CATEGORIES.forEach(cat => {
+            const slug = cat.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+            const docRef = doc(db, `users/${uid}/categories/${slug}`);
+            batch.set(docRef, { ...cat, createdAt: new Date().toISOString() });
+          });
+          await batch.commit();
         } else {
           setCategories(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         }
@@ -153,12 +160,13 @@ export const DataProvider = ({ children }) => {
     goals,
     lending,
     cycleStartDay,
+    monthlySalary,
     currentAggregate,
     getCategoryById,
     getCategoryByName,
   }), [
     accounts, transactions, budgets, categories, creditCards,
-    investments, goals, lending, cycleStartDay, currentAggregate,
+    investments, goals, lending, cycleStartDay, monthlySalary, currentAggregate,
     getCategoryById, getCategoryByName,
   ]);
 

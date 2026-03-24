@@ -3,7 +3,7 @@ import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase
 import { transactionsAPI, budgetSnapshotsAPI } from '../services/api';
 import { calculateNetWorth } from './calculations';
 
-const runRecurringTransactions = async (uid, todayStr) => {
+const runRecurringTransactions = async (uid, todayStr, cycleStartDay) => {
   try {
     const q = query(
       collection(db, `users/${uid}/transactions`),
@@ -33,13 +33,11 @@ const runRecurringTransactions = async (uid, todayStr) => {
       const { id, is_recurring, recurrence_interval, next_date, created_at, ...txnData } = data;
       txnData.date = data.next_date; // Create it exactly on its due date
 
-      // 1. Create the instance
-      // Note: we pass 25 explicitly as default, but in production we'd want to fetch cycleStartDay.
-      // Assuming 25 by default inside transactionsAPI is okay if not specified.
-      await transactionsAPI.create(txnData, 25);
+      // 1. Create the instance using actual cycleStartDay
+      await transactionsAPI.create(txnData, cycleStartDay);
 
       // 2. Update the definition document to the next date
-      await transactionsAPI.update(d.id, { next_date: nextDate }, 25);
+      await transactionsAPI.update(d.id, { next_date: nextDate }, cycleStartDay);
     }
   } catch (error) {
     console.error('Failed processing recurring transactions:', error);
@@ -106,10 +104,12 @@ export const runDailyCronJobs = async () => {
       return;
     }
 
-    console.log('Executing background cron operations...', { lastCronRun, todayStr });
+    // Background cron execution
+
+    const cycleStartDay = profileData.cycleStartDay || 25;
 
     // 1. Process recurring tasks sequentially to avoid overwhelming rate limits
-    await runRecurringTransactions(uid, todayStr);
+    await runRecurringTransactions(uid, todayStr, cycleStartDay);
     
     // 2. Net worth snapshot (only executes logic if today is EOM)
     await recordNetWorthSnapshot(uid, todayStr);

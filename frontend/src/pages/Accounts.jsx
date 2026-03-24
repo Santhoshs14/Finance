@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useData } from '../context/DataContext';
 import { useTheme } from '../context/ThemeContext';
@@ -14,17 +14,9 @@ import QuickAddTransaction from '../components/QuickAddTransaction';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { transactionsAPI } from '../services/api';
 
-const fmt = (n) => '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n || 0);
+import { fmt } from '../utils/format';
 
-const CustomTooltip = ({ active, payload, label, isDark }) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div style={{ background: isDark ? '#1f2937' : '#fff', border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`, borderRadius: 10, padding: '10px 14px', fontSize: 13 }}>
-      <p style={{ color: isDark ? '#9ca3af' : '#6b7280', marginBottom: 4, fontWeight: 600 }}>{label}</p>
-      {payload.map((p, i) => <p key={i} style={{ color: p.color, margin: '2px 0' }}>{p.name}: {fmt(p.value)}</p>)}
-    </div>
-  );
-};
+import CustomTooltip from '../components/CustomTooltip';
 
 export default function Accounts() {
   const { isDark } = useTheme();
@@ -44,12 +36,15 @@ export default function Accounts() {
 
   const allAccounts = useMemo(() => [...bankAccounts, ...creditAccounts], [bankAccounts, creditAccounts]);
 
-  const selectedAccount = useMemo(() => {
+  // Set initial selected account without side effects inside useMemo
+  useEffect(() => {
     if (!selectedAccountId && allAccounts.length > 0) {
       setSelectedAccountId(allAccounts[0].id);
-      return allAccounts[0];
     }
-    return allAccounts.find(a => a.id === selectedAccountId) || allAccounts[0];
+  }, [allAccounts, selectedAccountId]);
+
+  const selectedAccount = useMemo(() => {
+    return allAccounts.find(a => a.id === selectedAccountId) || allAccounts[0] || null;
   }, [selectedAccountId, allAccounts]);
 
   // Derived Statistics for Selected Account
@@ -213,7 +208,7 @@ export default function Accounts() {
                 </div>
               </div>
               <div className="h-[250px] sm:h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <AreaChart data={accountStats.chartData}>
                     <defs>
                       <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
@@ -254,8 +249,8 @@ export default function Accounts() {
             onSubmit={(data) => addTxnMutation.mutate(data)}
             accounts={bankAccounts} 
             creditCards={creditCards}
-            defaultAccountId={selectedAccount?.type !== 'credit' ? selectedAccount.id : null}
-            defaultCreditCardId={selectedAccount?.type === 'credit' ? selectedAccount.id : null}
+            defaultAccountId={selectedAccount?.type !== 'credit' ? selectedAccount?.id : null}
+            defaultCreditCardId={selectedAccount?.type === 'credit' ? selectedAccount?.id : null}
           />
         )}
       </AnimatePresence>

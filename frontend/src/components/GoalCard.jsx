@@ -31,17 +31,34 @@ export default function GoalCard({ goal, delay = 0 }) {
       className="glass-card p-4 sm:p-6"
     >
       <div className="flex justify-between items-start mb-4">
-        <div>
-          <h4 style={{ fontWeight: 700, color: textMain, fontSize: 16 }}>{goal.goal_name || goal.name}</h4>
-          <p style={{ fontSize: 11, color: textSub, marginTop: 2 }}>Target: {new Intl.DateTimeFormat('en-IN').format(deadline || now)}</p>
+        <div className="flex-1 pr-2">
+          <div className="flex items-center gap-2 mb-1">
+            <h4 style={{ fontWeight: 700, color: textMain, fontSize: 16 }}>{goal.goal_name || goal.name}</h4>
+            <span style={{ 
+              fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
+              background: progress >= 100 ? 'rgba(26,191,148,0.15)' : 'rgba(245,158,11,0.15)',
+              color: progress >= 100 ? '#1abf94' : '#f59e0b',
+              marginLeft: 'auto'
+            }}>
+              {progress.toFixed(1)}%
+            </span>
+          </div>
+          <p style={{ fontSize: 11, color: textSub }}>Target: {new Intl.DateTimeFormat('en-IN').format(deadline || now)}</p>
         </div>
-        <span style={{ 
-          fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 99,
-          background: progress >= 100 ? 'rgba(26,191,148,0.15)' : 'rgba(245,158,11,0.15)',
-          color: progress >= 100 ? '#1abf94' : '#f59e0b'
-        }}>
-          {progress.toFixed(1)}%
-        </span>
+        
+        {/* Actions Dropdown / Icons */}
+        <div className="flex gap-1">
+          {goal.onAddFunds && (
+            <button onClick={() => goal.onAddFunds(goal)} title="Add Funds" className="p-1.5 rounded-lg hover:bg-dark-100 dark:hover:bg-dark-800 text-primary-500 transition-colors">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+            </button>
+          )}
+          {goal.onEdit && (
+            <button onClick={() => goal.onEdit(goal)} title="Edit Goal" className="p-1.5 rounded-lg hover:bg-dark-100 dark:hover:bg-dark-800 text-dark-500 hover:text-dark-700 dark:text-dark-400 dark:hover:text-dark-200 transition-colors">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="progress-track" style={{ height: 10, marginBottom: 12 }}>

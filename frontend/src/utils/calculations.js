@@ -9,7 +9,7 @@ export const calculateNetWorth = (accounts, investments, lendingItems = []) => {
   const creditAccounts = accounts.filter(a => a.type === 'credit');
 
   const totalAccountBalance = bankAccounts.reduce((sum, acc) => sum + (acc.balance || 0), 0);
-  const totalInvestmentValue = investments.reduce((sum, inv) => sum + (inv.current_price * inv.quantity), 0);
+  const totalInvestmentValue = investments.reduce((sum, inv) => sum + ((inv.current_price * inv.quantity) || inv.current_value || inv.value || 0), 0);
 
   const ccOutstanding = creditAccounts.reduce((sum, cc) => sum + (cc.liability || 0), 0);
 
@@ -32,7 +32,7 @@ export const calculateNetWorth = (accounts, investments, lendingItems = []) => {
 };
 
 export const calculateTotalSavings = (investments) => {
-  return investments.reduce((sum, inv) => sum + (inv.current_price * inv.quantity), 0);
+  return investments.reduce((sum, inv) => sum + ((inv.current_price * inv.quantity) || inv.current_value || inv.value || 0), 0);
 };
 
 export const calculateTotalLiabilities = (accounts, lendingItems = []) => {
@@ -98,8 +98,8 @@ export const calculateCCUtilization = (accounts) => {
 
 export const calculateInvestmentPL = (investments) => {
   return investments.map((inv) => {
-    const invested = inv.buy_price * inv.quantity;
-    const current = inv.current_price * inv.quantity;
+    const invested = (inv.buy_price * inv.quantity) || inv.invested_amount || 0;
+    const current = (inv.current_price * inv.quantity) || inv.current_value || inv.value || 0;
     const profit_loss = current - invested;
     const pl_percentage = invested > 0
       ? parseFloat(((profit_loss / invested) * 100).toFixed(2))
@@ -124,7 +124,7 @@ export const calculatePortfolioAllocation = (accounts, investments) => {
   });
   
   investments.forEach(inv => {
-    const value = inv.current_price * inv.quantity;
+    const value = (inv.current_price * inv.quantity) || inv.current_value || inv.value || 0;
     const type = (inv.investment_type || 'Equity').toLowerCase();
     
     if (type.includes('debt') || type.includes('bond')) totals.Debt += value;

@@ -5,7 +5,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { accountsAPI, authAPI, profileAPI } from '../services/api';
-import { PlusIcon, TrashIcon, PencilSquareIcon, SunIcon, MoonIcon, BellIcon, ArrowDownTrayIcon, CalendarDaysIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, TrashIcon, PencilSquareIcon, SunIcon, MoonIcon, ArrowDownTrayIcon, CalendarDaysIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
 export default function Settings() {
@@ -15,12 +15,12 @@ export default function Settings() {
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState({ account_name: '', account_type: 'bank', balance: '' });
-  const [notifs, setNotifs] = useState({ email: true, push: false, monthlyReport: true });
+
 
   const displayName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User';
   const initials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
-  const { accounts, cycleStartDay } = useData();
+  const { accounts, cycleStartDay, transactions } = useData();
   const bankAccounts = accounts.filter(a => a.type !== 'credit');
   const loading = false;
 
@@ -49,6 +49,33 @@ export default function Settings() {
     queryClient.invalidateQueries({ queryKey: ['accounts'] });
     queryClient.invalidateQueries({ queryKey: ['calculations'] });
     queryClient.invalidateQueries({ queryKey: ['insights'] });
+  };
+
+  const handleExportCSV = () => {
+    if (!transactions || transactions.length === 0) {
+      return toast.error('No transactions to export');
+    }
+    
+    const headers = ['Date', 'Amount', 'Category', 'Notes', 'Account Type', 'Payment Type'];
+    const rows = transactions.map(t => [
+      t.date || '', 
+      t.amount || 0, 
+      `"${(t.category || '').replace(/"/g, '""')}"`, 
+      `"${(t.notes || '').replace(/"/g, '""')}"`, 
+      t.type || '',
+      t.payment_type || ''
+    ]);
+    
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `wealthflow_export_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success('Export downloaded successfully!', { icon: '📦' });
   };
 
   const addMutation = useMutation({
@@ -169,37 +196,19 @@ export default function Settings() {
         </p>
       </div>
 
-      {/* Theme & Notifications */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <div className="glass-card p-6">
-          <h3 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-dark-900'}`}>Appearance</h3>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={`font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>Theme</p>
-              <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Toggle dark / light mode</p>
-            </div>
-            <button onClick={toggleTheme} className={`relative w-16 h-8 rounded-full transition-all ${isDark ? 'bg-primary-600' : 'bg-dark-300'}`}>
-              <motion.div animate={{ x: isDark ? 32 : 0 }} className="absolute top-1 left-1 w-6 h-6 rounded-full bg-white shadow-md flex items-center justify-center">
-                {isDark ? <MoonIcon className="w-3.5 h-3.5 text-primary-600" /> : <SunIcon className="w-3.5 h-3.5 text-warning-500" />}
-              </motion.div>
-            </button>
+      {/* Theme */}
+      <div className="glass-card mb-6 p-6">
+        <h3 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-dark-900'}`}>Appearance</h3>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className={`font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>Theme</p>
+            <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Toggle dark / light mode</p>
           </div>
-        </div>
-
-        <div className="glass-card p-6">
-          <h3 className={`text-lg font-semibold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-dark-900'}`}>
-            <BellIcon className="w-5 h-5 text-primary-500" /> Notifications
-          </h3>
-          <div className="space-y-4">
-            {Object.entries({ email: 'Email Alerts', push: 'Push Notifications', monthlyReport: 'Monthly Report' }).map(([key, label]) => (
-              <div key={key} className="flex items-center justify-between">
-                <span className={`text-sm font-medium ${isDark ? 'text-dark-200' : 'text-dark-700'}`}>{label}</span>
-                <button onClick={() => setNotifs({...notifs, [key]: !notifs[key]})} className={`relative w-11 h-6 rounded-full transition-all ${notifs[key] ? 'bg-primary-500' : 'bg-dark-300'}`}>
-                  <motion.div animate={{ x: notifs[key] ? 20 : 2 }} className="absolute top-1 left-0 w-4 h-4 rounded-full bg-white shadow-sm" />
-                </button>
-              </div>
-            ))}
-          </div>
+          <button onClick={toggleTheme} className={`relative w-16 h-8 rounded-full transition-all ${isDark ? 'bg-primary-600' : 'bg-dark-300'}`}>
+            <motion.div animate={{ x: isDark ? 32 : 0 }} className="absolute top-1 left-1 w-6 h-6 rounded-full bg-white shadow-md flex items-center justify-center">
+              {isDark ? <MoonIcon className="w-3.5 h-3.5 text-primary-600" /> : <SunIcon className="w-3.5 h-3.5 text-warning-500" />}
+            </motion.div>
+          </button>
         </div>
       </div>
 
@@ -259,7 +268,7 @@ export default function Settings() {
             <p className={`font-medium ${isDark ? 'text-white' : 'text-dark-900'}`}>Export All Data</p>
             <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Download a backup of all your financial data</p>
           </div>
-          <button onClick={() => toast.success('Data export initiated. Please check your email.', { icon: '📦' })} className="btn-secondary flex items-center gap-2">
+          <button onClick={handleExportCSV} className="btn-secondary flex items-center gap-2">
             <ArrowDownTrayIcon className="w-4 h-4" /> Export CSV
           </button>
         </div>

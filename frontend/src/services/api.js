@@ -2,7 +2,7 @@ import { db, auth } from '../config/firebase';
 import {
   collection, doc, addDoc, updateDoc, deleteDoc,
   getDocs, getDoc, setDoc, writeBatch, increment,
-  serverTimestamp, query, orderBy, limit,
+  serverTimestamp, query, orderBy, limit, runTransaction,
 } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 import { getFinancialCycleForDate } from '../utils/financialMonth';
@@ -32,22 +32,6 @@ const adjustAccountBalance = async (batch, accountId, delta) => {
 
 /* ─────────────────────────────────────────────
    Aggregates helper — update cycle aggregate doc
-   delta: { totalSpent?: number, totalIncome?: number, categoryName?: string, categoryDelta?: number }
-───────────────────────────────────────────── */
-const applyAggregateDelta = (batch, uid, cycleKey, delta) => {
-  const aggRef = doc(db, `users/${uid}/aggregates/${cycleKey}`);
-  const update = { updatedAt: new Date().toISOString() };
-
-  if (delta.totalSpent)  update.totalSpent  = increment(delta.totalSpent);
-  if (delta.totalIncome) update.totalIncome = increment(delta.totalIncome);
-
-  if (delta.categoryName && delta.categoryDelta) {
-    update[`categoryBreakdown.${delta.categoryName}`] = increment(delta.categoryDelta);
-  }
-
-  batch.set(aggRef, update, { merge: true });
-};
-
 /**
  * Given a transaction doc, compute what aggregate delta it contributes (positive = adding it).
  */
@@ -127,214 +111,222 @@ export const accountsAPI = {
 ───────────────────────────────────────────── */
 export const transactionsAPI = {
   /**
-   * Create a transaction atomically:
+   * Create a transaction atomically using runTransaction:
+   * - Read account type inside the transaction (prevents race conditions)
    * - Write transaction doc
-   * - Update account balance
+   * - Update account balance/liability
    * - Update aggregates for the cycle
    */
   create: async (data, cycleStartDay = 25) => {
     const uid = getUid();
-    // Validate
     const amount = parseFloat(data.amount);
     if (isNaN(amount) || amount === 0) throw new Error('Invalid amount');
 
     const cycle = getFinancialCycleForDate(data.date, cycleStartDay);
     const txData = { ...data, amount, _cycleKey: cycle.cycleKey, createdAt: new Date().toISOString() };
-
-    const batch = writeBatch(db);
-
-    // 1. Transaction doc
     const txRef = doc(collection(db, `users/${uid}/transactions`));
-    batch.set(txRef, txData);
 
-    // 2. Account balance / liability
-    if (data.account_id) {
-      const accRef = doc(db, `users/${uid}/accounts/${data.account_id}`);
-      const accSnap = await getDoc(accRef);
-      const accType = accSnap.exists() ? accSnap.data().type : 'bank';
-      if (accType === 'credit') {
-        const delta = -amount;
-        batch.update(accRef, { liability: increment(Math.round(delta * 100) / 100) });
-      } else {
-        batch.update(accRef, { balance: increment(Math.round(amount * 100) / 100) });
+    await runTransaction(db, async (transaction) => {
+      // Read account type inside the transaction for consistency
+      let accType = 'bank';
+      if (data.account_id) {
+        const accRef = doc(db, `users/${uid}/accounts/${data.account_id}`);
+        const accSnap = await transaction.get(accRef);
+        accType = accSnap.exists() ? accSnap.data().type : 'bank';
       }
-    }
 
-    // 3. Aggregates
-    const delta = txnToAggregateDelta(txData, 1);
-    if (delta) {
-      const aggRef = doc(db, `users/${uid}/aggregates/${cycle.cycleKey}`);
-      const aggUpdate = { updatedAt: new Date().toISOString() };
-      if (amount > 0) {
-        aggUpdate.totalIncome = increment(amount);
-      } else {
-        aggUpdate.totalSpent = increment(Math.abs(amount));
-      }
-      if (txData.category) {
-        aggUpdate[`categoryBreakdown.${txData.category}`] = increment(Math.abs(amount));
-      }
-      batch.set(aggRef, aggUpdate, { merge: true });
-    }
+      // 1. Write transaction doc
+      transaction.set(txRef, txData);
 
-    await batch.commit();
+      // 2. Account balance / liability
+      if (data.account_id) {
+        const accRef = doc(db, `users/${uid}/accounts/${data.account_id}`);
+        if (accType === 'credit') {
+          const delta = -amount;
+          transaction.update(accRef, { liability: increment(Math.round(delta * 100) / 100) });
+        } else {
+          transaction.update(accRef, { balance: increment(Math.round(amount * 100) / 100) });
+        }
+      }
+
+      // 3. Aggregates
+      const aggDelta = txnToAggregateDelta(txData, 1);
+      if (aggDelta) {
+        const aggRef = doc(db, `users/${uid}/aggregates/${cycle.cycleKey}`);
+        const aggUpdate = { updatedAt: new Date().toISOString() };
+        if (amount > 0) {
+          aggUpdate.totalIncome = increment(amount);
+        } else {
+          aggUpdate.totalSpent = increment(Math.abs(amount));
+        }
+        // Only add expenses to categoryBreakdown (not income)
+        if (txData.category && amount < 0) {
+          aggUpdate[`categoryBreakdown.${txData.category}`] = increment(Math.abs(amount));
+        }
+        transaction.set(aggRef, aggUpdate, { merge: true });
+      }
+    });
+
     return { id: txRef.id };
   },
 
   /**
-   * Update a transaction atomically:
+   * Update a transaction atomically using runTransaction:
+   * - All reads happen inside the transaction (prevents race conditions)
    * - Reverse old balance + aggregate impact
    * - Apply new balance + aggregate impact
    */
   update: async (id, data, cycleStartDay = 25) => {
     const uid = getUid();
 
-    // Read old transaction
-    const oldSnap = await getDoc(doc(db, `users/${uid}/transactions/${id}`));
-    if (!oldSnap.exists()) throw new Error('Transaction not found');
+    await runTransaction(db, async (transaction) => {
+      // Read old transaction inside the transaction
+      const oldSnap = await transaction.get(doc(db, `users/${uid}/transactions/${id}`));
+      if (!oldSnap.exists()) throw new Error('Transaction not found');
 
-    const old = oldSnap.data();
-    const oldAmount = parseFloat(old.amount || 0);
-    const newAmount = parseFloat(data.amount ?? old.amount ?? 0);
-    const oldAccountId = old.account_id;
-    const newAccountId = data.account_id ?? oldAccountId;
-    const oldCycleKey = old._cycleKey || getFinancialCycleForDate(old.date, cycleStartDay).cycleKey;
-    const newCycle = getFinancialCycleForDate(data.date || old.date, cycleStartDay);
-    const newCycleKey = newCycle.cycleKey;
+      const old = oldSnap.data();
+      const oldAmount = parseFloat(old.amount || 0);
+      const newAmount = parseFloat(data.amount ?? old.amount ?? 0);
+      const oldAccountId = old.account_id;
+      const newAccountId = data.account_id ?? oldAccountId;
+      const oldCycleKey = old._cycleKey || getFinancialCycleForDate(old.date, cycleStartDay).cycleKey;
+      const newCycle = getFinancialCycleForDate(data.date || old.date, cycleStartDay);
+      const newCycleKey = newCycle.cycleKey;
 
-    const newData = {
-      ...old, ...data,
-      amount: newAmount,
-      _cycleKey: newCycleKey,
-      updatedAt: new Date().toISOString(),
-    };
+      const newData = {
+        ...old, ...data,
+        amount: newAmount,
+        _cycleKey: newCycleKey,
+        updatedAt: new Date().toISOString(),
+      };
 
-    const batch = writeBatch(db);
+      // Read account types inside transaction
+      const getAccountType = async (accId) => {
+        if (!accId) return null;
+        const snap = await transaction.get(doc(db, `users/${uid}/accounts/${accId}`));
+        return snap.exists() ? snap.data().type : 'bank';
+      };
 
-    // 1. Update transaction doc
-    batch.update(doc(db, `users/${uid}/transactions/${id}`), newData);
+      // 1. Update transaction doc
+      transaction.update(doc(db, `users/${uid}/transactions/${id}`), newData);
 
-    // 2. Reverse & reapply account balance/liability
-    const getAccountType = async (accId) => {
-      if (!accId) return null;
-      const snap = await getDoc(doc(db, `users/${uid}/accounts/${accId}`));
-      return snap.exists() ? snap.data().type : 'bank';
-    };
+      // 2. Reverse & reapply account balance/liability
+      if (oldAccountId === newAccountId) {
+        if (oldAccountId) {
+          const type = await getAccountType(oldAccountId);
+          let balDelta = newAmount - oldAmount;
 
-    if (oldAccountId === newAccountId) {
-      if (oldAccountId) {
-        const type = await getAccountType(oldAccountId);
-        let balDelta = newAmount - oldAmount;
-        
-        if (balDelta !== 0) {
+          if (balDelta !== 0) {
+            if (type === 'credit') {
+              transaction.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
+                liability: increment(Math.round(-balDelta * 100) / 100),
+              });
+            } else {
+              transaction.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
+                balance: increment(Math.round(balDelta * 100) / 100),
+              });
+            }
+          }
+        }
+      } else {
+        if (oldAccountId) {
+          const type = await getAccountType(oldAccountId);
           if (type === 'credit') {
-            batch.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
-              liability: increment(Math.round(-balDelta * 100) / 100),
+            transaction.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
+              liability: increment(Math.round(oldAmount * 100) / 100),
             });
           } else {
-            batch.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
-              balance: increment(Math.round(balDelta * 100) / 100),
+            transaction.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
+              balance: increment(Math.round(-oldAmount * 100) / 100),
+            });
+          }
+        }
+        if (newAccountId) {
+          const type = await getAccountType(newAccountId);
+          if (type === 'credit') {
+            transaction.update(doc(db, `users/${uid}/accounts/${newAccountId}`), {
+              liability: increment(Math.round(-newAmount * 100) / 100),
+            });
+          } else {
+            transaction.update(doc(db, `users/${uid}/accounts/${newAccountId}`), {
+              balance: increment(Math.round(newAmount * 100) / 100),
             });
           }
         }
       }
-    } else {
-      if (oldAccountId) {
-        const type = await getAccountType(oldAccountId);
-        if (type === 'credit') {
-          batch.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
-            liability: increment(Math.round(oldAmount * 100) / 100),
-          });
-        } else {
-          batch.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
-            balance: increment(Math.round(-oldAmount * 100) / 100),
-          });
+
+      // 3. Reverse old aggregate & apply new
+      const applyAgg = (aggCycleKey, txData, sign) => {
+        const aggRef = doc(db, `users/${uid}/aggregates/${aggCycleKey}`);
+        const upd = { updatedAt: new Date().toISOString() };
+        const amt = parseFloat(txData.amount || 0);
+        if (amt > 0) {
+          upd.totalIncome = increment(sign * amt);
+        } else if (amt < 0) {
+          upd.totalSpent = increment(sign * Math.abs(amt));
         }
-      }
-      if (newAccountId) {
-        const type = await getAccountType(newAccountId);
-        if (type === 'credit') {
-          batch.update(doc(db, `users/${uid}/accounts/${newAccountId}`), {
-            liability: increment(Math.round(-newAmount * 100) / 100),
-          });
-        } else {
-          batch.update(doc(db, `users/${uid}/accounts/${newAccountId}`), {
-            balance: increment(Math.round(newAmount * 100) / 100),
-          });
+        // Only update categoryBreakdown for expenses (not income)
+        if (txData.category && amt < 0) {
+          upd[`categoryBreakdown.${txData.category}`] = increment(sign * Math.abs(amt));
         }
-      }
-    }
+        transaction.set(aggRef, upd, { merge: true });
+      };
 
-    // 3. Reverse old aggregate
-    const reverseOldAgg = (aggCycleKey, txData, sign) => {
-      const aggRef = doc(db, `users/${uid}/aggregates/${aggCycleKey}`);
-      const upd = { updatedAt: new Date().toISOString() };
-      const amt = parseFloat(txData.amount || 0);
-      if (amt > 0) {
-        upd.totalIncome = increment(sign * amt);
-      } else if (amt < 0) {
-        upd.totalSpent = increment(sign * Math.abs(amt));
-      }
-      if (txData.category) {
-        upd[`categoryBreakdown.${txData.category}`] = increment(sign * Math.abs(amt));
-      }
-      batch.set(aggRef, upd, { merge: true });
-    };
-
-    reverseOldAgg(oldCycleKey, old, -1);
-    reverseOldAgg(newCycleKey, newData, 1);
-
-    await batch.commit();
+      applyAgg(oldCycleKey, old, -1);
+      applyAgg(newCycleKey, newData, 1);
+    });
   },
 
   /**
-   * Delete a transaction atomically:
+   * Delete a transaction atomically using runTransaction:
+   * - All reads happen inside the transaction (prevents race conditions)
    * - Reverse account balance
    * - Reverse aggregates
    */
   delete: async (id, cycleStartDay = 25) => {
     const uid = getUid();
 
-    const snap = await getDoc(doc(db, `users/${uid}/transactions/${id}`));
-    if (!snap.exists()) {
-      await deleteDoc(doc(db, `users/${uid}/transactions/${id}`));
-      return;
-    }
-
-    const txData = snap.data();
-    const amount = parseFloat(txData.amount || 0);
-    const cycleKey = txData._cycleKey || getFinancialCycleForDate(txData.date, cycleStartDay).cycleKey;
-
-    const batch = writeBatch(db);
-
-    // 1. Delete transaction
-    batch.delete(doc(db, `users/${uid}/transactions/${id}`));
-
-    // 2. Reverse account balance/liability
-    if (txData.account_id && amount !== 0) {
-      const accRef = doc(db, `users/${uid}/accounts/${txData.account_id}`);
-      const accSnap = await getDoc(accRef);
-      const accType = accSnap.exists() ? accSnap.data().type : 'bank';
-      if (accType === 'credit') {
-        batch.update(accRef, { liability: increment(Math.round(amount * 100) / 100) });
-      } else {
-        batch.update(accRef, { balance: increment(Math.round(-amount * 100) / 100) });
+    await runTransaction(db, async (transaction) => {
+      const txDocRef = doc(db, `users/${uid}/transactions/${id}`);
+      const snap = await transaction.get(txDocRef);
+      if (!snap.exists()) {
+        // Already deleted, nothing to reverse
+        return;
       }
-    }
 
-    // 3. Reverse aggregates
-    const aggRef = doc(db, `users/${uid}/aggregates/${cycleKey}`);
-    const aggUpd = { updatedAt: new Date().toISOString() };
-    if (amount > 0) {
-      aggUpd.totalIncome = increment(-amount);
-    } else if (amount < 0) {
-      aggUpd.totalSpent = increment(-Math.abs(amount));
-    }
-    if (txData.category) {
-      aggUpd[`categoryBreakdown.${txData.category}`] = increment(-Math.abs(amount));
-    }
-    batch.set(aggRef, aggUpd, { merge: true });
+      const txData = snap.data();
+      const amount = parseFloat(txData.amount || 0);
+      const cycleKey = txData._cycleKey || getFinancialCycleForDate(txData.date, cycleStartDay).cycleKey;
 
-    await batch.commit();
+      // 1. Delete transaction
+      transaction.delete(txDocRef);
+
+      // 2. Reverse account balance/liability
+      if (txData.account_id && amount !== 0) {
+        const accRef = doc(db, `users/${uid}/accounts/${txData.account_id}`);
+        const accSnap = await transaction.get(accRef);
+        const accType = accSnap.exists() ? accSnap.data().type : 'bank';
+        if (accType === 'credit') {
+          transaction.update(accRef, { liability: increment(Math.round(amount * 100) / 100) });
+        } else {
+          transaction.update(accRef, { balance: increment(Math.round(-amount * 100) / 100) });
+        }
+      }
+
+      // 3. Reverse aggregates
+      const aggRef = doc(db, `users/${uid}/aggregates/${cycleKey}`);
+      const aggUpd = { updatedAt: new Date().toISOString() };
+      if (amount > 0) {
+        aggUpd.totalIncome = increment(-amount);
+      } else if (amount < 0) {
+        aggUpd.totalSpent = increment(-Math.abs(amount));
+      }
+      // Only reverse categoryBreakdown for expenses (not income)
+      if (txData.category && amount < 0) {
+        aggUpd[`categoryBreakdown.${txData.category}`] = increment(-Math.abs(amount));
+      }
+      transaction.set(aggRef, aggUpd, { merge: true });
+    });
   },
 
   /**
@@ -529,6 +521,63 @@ export const creditCardsAPI = {
   update: async (id, data) => await updateDoc(getDocRef('creditCards', id), data),
   delete: async (id) => await deleteDoc(getDocRef('creditCards', id)),
   createTransaction: async (data) => await addDoc(getUserRef('transactions'), data),
+
+  /**
+   * Atomic CC bill payment — single batch that:
+   * 1. Creates debit transaction on bank account
+   * 2. Creates credit transaction on credit card
+   * 3. Adjusts bank account balance (decrement)
+   * 4. Adjusts CC liability (decrement)
+   * This prevents partial state where bank is debited but CC liability isn't reduced.
+   */
+  payBill: async ({ amount, bankAccountId, creditCardId, date, ccName, cycleStartDay = 25 }) => {
+    const uid = getUid();
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) throw new Error('Invalid payment amount');
+    if (!bankAccountId || !creditCardId) throw new Error('Both bank account and credit card are required');
+
+    const cycle = getFinancialCycleForDate(date, cycleStartDay);
+    const batch = writeBatch(db);
+
+    // 1. Debit transaction on bank (expense — negative amount)
+    const debitRef = doc(collection(db, `users/${uid}/transactions`));
+    batch.set(debitRef, {
+      amount: -parsedAmount,
+      account_id: bankAccountId,
+      category: 'Credit Card Payment',
+      date,
+      notes: `Payment for ${ccName || 'Credit Card'}`,
+      payment_type: 'Transfer',
+      _cycleKey: cycle.cycleKey,
+      createdAt: new Date().toISOString(),
+    });
+
+    // 2. Credit transaction on CC (income — positive amount, reduces liability)
+    const creditRef = doc(collection(db, `users/${uid}/transactions`));
+    batch.set(creditRef, {
+      amount: parsedAmount,
+      account_id: creditCardId,
+      category: 'Credit Card Payment',
+      date,
+      notes: 'Thank you for your payment',
+      payment_type: 'Credit Card',
+      _cycleKey: cycle.cycleKey,
+      createdAt: new Date().toISOString(),
+    });
+
+    // 3. Adjust bank account balance (decrease)
+    const bankRef = doc(db, `users/${uid}/accounts/${bankAccountId}`);
+    batch.update(bankRef, { balance: increment(Math.round(-parsedAmount * 100) / 100) });
+
+    // 4. Adjust CC liability (decrease)
+    const ccRef = doc(db, `users/${uid}/accounts/${creditCardId}`);
+    batch.update(ccRef, { liability: increment(Math.round(-parsedAmount * 100) / 100) });
+
+    // Note: These are transfer transactions, so no aggregate impact (transfers are excluded)
+
+    await batch.commit();
+    return { debitId: debitRef.id, creditId: creditRef.id };
+  },
 };
 
 /* ─────────────────────────────────────────────
@@ -560,14 +609,6 @@ export const lendingAPI = {
   create: async (data) => await addDoc(getUserRef('lending'), data),
   update: async (id, data) => await updateDoc(getDocRef('lending', id), data),
   delete: async (id) => await deleteDoc(getDocRef('lending', id)),
-};
-
-/* ─────────────────────────────────────────────
-   Reports API (local computation)
-───────────────────────────────────────────── */
-export const reportsAPI = {
-  getMonthly: () => Promise.resolve({ data: { data: [] } }),
-  getYearly:  () => Promise.resolve({ data: { data: [] } }),
 };
 
 /* ─────────────────────────────────────────────
@@ -641,7 +682,16 @@ export const importAPI = {
             }
 
             // Post-batch atomic updates of Account Balances & Aggregates
-            const finalizeBatch = writeBatch(db);
+            let finalizeBatch = writeBatch(db);
+            let opCount = 0;
+
+            const commitAndReset = async () => {
+              if (opCount > 0) {
+                await finalizeBatch.commit();
+                finalizeBatch = writeBatch(db);
+                opCount = 0;
+              }
+            };
             
             for (const [accId, delta] of Object.entries(accDeltas)) {
               if (delta === 0) continue;
@@ -650,6 +700,9 @@ export const importAPI = {
               const type = snap.exists() ? snap.data().type : 'bank';
               if (type === 'credit') finalizeBatch.update(accRef, { liability: increment(Math.round(-delta * 100) / 100) });
               else finalizeBatch.update(accRef, { balance: increment(Math.round(delta * 100) / 100) });
+              
+              opCount++;
+              if (opCount >= 400) await commitAndReset();
             }
 
             for (const [cKey, deltas] of Object.entries(aggDeltas)) {
@@ -661,9 +714,12 @@ export const importAPI = {
                 if (v > 0) updateVars[`categoryBreakdown.${cat}`] = increment(v);
               }
               finalizeBatch.set(aggRef, updateVars, { merge: true });
+              
+              opCount++;
+              if (opCount >= 400) await commitAndReset();
             }
 
-            await finalizeBatch.commit();
+            await commitAndReset();
             resolve({ data: { data: transactions } });
           }
         } catch (error) {
@@ -676,19 +732,6 @@ export const importAPI = {
   },
 };
 
-/* ─────────────────────────────────────────────
-   Insights API (local generation)
-───────────────────────────────────────────── */
-export const insightsAPI = {
-  get: () => Promise.resolve({ data: { data: { insights: [] } } }),
-};
 
-/* ─────────────────────────────────────────────
-   Calculations API — computed locally from DataContext
-───────────────────────────────────────────── */
-export const calculationsAPI = {
-  get: () => Promise.resolve({ data: { data: {} } }),
-  getSnapshots: () => Promise.resolve({ data: { data: [] } }),
-};
 
 export default {};

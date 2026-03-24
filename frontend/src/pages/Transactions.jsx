@@ -13,7 +13,7 @@ import { getRecentFinancialMonths } from '../utils/financialMonth';
 import { PlusIcon, ArrowUpTrayIcon, TrashIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
-const fmt = (n) => '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n || 0);
+import { fmt } from '../utils/format';
 
 export default function Transactions() {
   const { isDark } = useTheme();
@@ -228,7 +228,7 @@ export default function Transactions() {
       </div>
 
       {/* ─── Analytics Summary ─── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         {[
           { label: 'Total Spent', value: fmt(analytics.totalSpent), color: '#ef4444' },
           { label: 'Top Category', value: analytics.topCategory, color: '#f59e0b' },

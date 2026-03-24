@@ -4,6 +4,8 @@
  * Relies on pre-aggregated data for scalability instead of looping over thousands of transactions.
  */
 
+import { calculateCCUtilization } from './calculations';
+
 export const generateInsightsFromAggregates = (aggregate, budgets, accounts) => {
   const insights = [];
   if (!aggregate) return insights;
@@ -59,14 +61,13 @@ export const generateInsightsFromAggregates = (aggregate, budgets, accounts) => 
 
   // 3. Credit Card Utilization
   if (accounts) {
-    const ccAccounts = accounts.filter(a => a.type === 'credit' && a.credit_limit > 0);
-    ccAccounts.forEach(cc => {
-      const util = ((cc.liability || 0) / cc.credit_limit) * 100;
-      if (util > 30) {
+    const ccMetrics = calculateCCUtilization(accounts);
+    ccMetrics.forEach(cc => {
+      if (cc.utilization_percentage > 30) {
         insights.push({
           type: 'warning',
           title: 'High Credit Utilization',
-          message: `${cc.account_name} is at ${util.toFixed(1)}% utilization. Keep it below 30% for a healthy credit score.`,
+          message: `${cc.card_name} is at ${cc.utilization_percentage.toFixed(1)}% utilization. Keep it below 30% for a healthy credit score.`,
         });
       }
     });

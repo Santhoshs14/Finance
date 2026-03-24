@@ -83,16 +83,29 @@ export const calculateBudgetUsageFromAggregates = (budgets, aggregate) => {
 export const calculateCCUtilization = (accounts) => {
   const creditAccounts = accounts.filter(a => a.type === 'credit');
   return creditAccounts.map((card) => {
-    const outstanding = card.liability || 0;
-    const utilization = card.credit_limit > 0
-      ? parseFloat(((outstanding / card.credit_limit) * 100).toFixed(2))
+    let limit = card.credit_limit || 0;
+    let outstanding = card.liability || 0;
+
+    if (card.shared_limit_with) {
+      const parent = creditAccounts.find(c => c.id === card.shared_limit_with) || card;
+      limit = parent.credit_limit || 0;
+      outstanding = parent.liability || 0;
+      const children = creditAccounts.filter(c => c.shared_limit_with === parent.id);
+      children.forEach(c => outstanding += (c.liability || 0));
+    } else {
+      const children = creditAccounts.filter(c => c.shared_limit_with === card.id);
+      children.forEach(c => outstanding += (c.liability || 0));
+    }
+
+    const utilization = limit > 0
+      ? parseFloat(((outstanding / limit) * 100).toFixed(2))
       : 0;
 
     return {
       card_name: card.account_name,
-      credit_limit: card.credit_limit,
+      credit_limit: limit,
       outstanding,
-      available: card.credit_limit - outstanding,
+      available: limit - outstanding,
       utilization_percentage: utilization,
       risk_warning: utilization > 30,
     };

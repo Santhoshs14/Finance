@@ -21,7 +21,7 @@ export default function CreditCards() {
   const [showAddCard, setShowAddCard] = useState(false);
   const [showPayBill, setShowPayBill] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState(null);
-  const [cardForm, setCardForm] = useState({ account_name: '', credit_limit: '', billing_cycle_start_day: 1, due_days_after: 20 });
+  const [cardForm, setCardForm] = useState({ account_name: '', credit_limit: '', billing_cycle_start_day: 1, due_days_after: 20, shared_limit_with: '' });
   const [payForm, setPayForm] = useState({ account_id: '', amount: '', date: new Date().toISOString().split('T')[0] });
   const [isEditMode, setIsEditMode] = useState(false);
 
@@ -42,7 +42,7 @@ export default function CreditCards() {
       invalidateAll();
       toast.success('Credit Card added successfully!'); 
       setShowAddCard(false);
-      setCardForm({ account_name: '', credit_limit: '', billing_cycle_start_day: 1, due_days_after: 20 });
+      setCardForm({ account_name: '', credit_limit: '', billing_cycle_start_day: 1, due_days_after: 20, shared_limit_with: '' });
     },
     onError: () => toast.error('Failed to add card.')
   });
@@ -92,9 +92,10 @@ export default function CreditCards() {
     e.preventDefault();
     const data = {
       account_name: cardForm.account_name,
-      credit_limit: parseFloat(cardForm.credit_limit) || 0,
+      credit_limit: cardForm.shared_limit_with ? 0 : (parseFloat(cardForm.credit_limit) || 0),
       billing_cycle_start_day: parseInt(cardForm.billing_cycle_start_day) || 1,
       due_days_after: parseInt(cardForm.due_days_after) || 20,
+      shared_limit_with: cardForm.shared_limit_with || null,
     };
     if (isEditMode) {
       editCardMutation.mutate({ id: activeCardId, data });
@@ -110,6 +111,7 @@ export default function CreditCards() {
       credit_limit: activeCard.credit_limit || '',
       billing_cycle_start_day: activeCard.billing_cycle_start_day || 1,
       due_days_after: activeCard.due_days_after || 20,
+      shared_limit_with: activeCard.shared_limit_with || '',
     });
     setIsEditMode(true);
     setShowAddCard(true);
@@ -121,9 +123,34 @@ export default function CreditCards() {
   const metrics = useMemo(() => {
     if (!activeCard) return null;
     const balance = parseFloat(activeCard.liability || 0);
-    const limit = parseFloat(activeCard.credit_limit || 0);
-    const available = limit - balance;
-    const utilPercent = limit > 0 ? ((balance / limit) * 100).toFixed(1) : 0;
+
+    // Shared Limit Resolution
+    let limit = parseFloat(activeCard.credit_limit || 0);
+    let sharedLiability = balance;
+    let isShared = !!activeCard.shared_limit_with;
+    let parentCard = activeCard;
+
+    if (isShared) {
+      parentCard = creditCards.find(c => c.id === activeCard.shared_limit_with) || activeCard;
+      limit = parseFloat(parentCard.credit_limit || 0);
+      sharedLiability = parseFloat(parentCard.liability || 0);
+      // add all other children
+      creditCards.filter(c => c.shared_limit_with === parentCard.id).forEach(c => {
+        sharedLiability += parseFloat(c.liability || 0);
+      });
+    } else {
+      // It might be a parent, add its children's liability
+      const children = creditCards.filter(c => c.shared_limit_with === activeCard.id);
+      if (children.length > 0) {
+        isShared = true;
+        children.forEach(c => {
+          sharedLiability += parseFloat(c.liability || 0);
+        });
+      }
+    }
+
+    const available = limit - sharedLiability;
+    const utilPercent = limit > 0 ? ((sharedLiability / limit) * 100).toFixed(1) : 0;
     
     // Cycle logic
     const today = new Date();
@@ -142,8 +169,8 @@ export default function CreditCards() {
     const dueDateObj = new Date(cycle.endDate);
     dueDateObj.setDate(dueDateObj.getDate() + (parseInt(activeCard.due_days_after) || 20));
 
-    return { balance, limit, available, utilPercent, cycleSpend, cyclePaid, cycle, dueDate: dueDateObj.toISOString().split('T')[0] };
-  }, [activeCard, activeTxns]);
+    return { balance, limit, available, utilPercent, cycleSpend, cyclePaid, cycle, dueDate: dueDateObj.toISOString().split('T')[0], isShared, parentCardName: parentCard?.account_name, sharedLiability };
+  }, [activeCard, activeTxns, creditCards]);
 
   // Charts data
   const categoryData = useMemo(() => {
@@ -173,7 +200,7 @@ export default function CreditCards() {
           <h1 className={`text-3xl font-extrabold tracking-tight ${isDark ? 'text-white' : 'text-dark-900'}`}>Credit Cards</h1>
           <p className={`mt-1 text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Manage accounts, statements, and utilization</p>
         </div>
-        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => { setIsEditMode(false); setCardForm({ account_name: '', credit_limit: '', billing_cycle_start_day: 1, due_days_after: 20 }); setShowAddCard(true); }} className="btn-primary flex items-center gap-2 shadow-lg shadow-primary-500/20">
+        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => { setIsEditMode(false); setCardForm({ account_name: '', credit_limit: '', billing_cycle_start_day: 1, due_days_after: 20, shared_limit_with: '' }); setShowAddCard(true); }} className="btn-primary flex items-center gap-2 shadow-lg shadow-primary-500/20">
           <PlusIcon className="w-5 h-5" /> Add New Card
         </motion.button>
       </div>
@@ -232,19 +259,27 @@ export default function CreditCards() {
 
               <div className="mt-10 grid grid-cols-2 gap-8 relative z-10">
                 <div>
-                  <p className="text-indigo-200 text-xs font-semibold tracking-wider uppercase mb-1">Outstanding Liability</p>
+                  <p className="text-indigo-200 text-xs font-semibold tracking-wider uppercase mb-1">
+                    Outstanding (This Card)
+                  </p>
                   <p className="text-4xl font-black tracking-tight drop-shadow-md">₹{metrics.balance.toLocaleString('en-IN')}</p>
                 </div>
                 <div>
-                  <p className="text-indigo-200 text-xs font-semibold tracking-wider uppercase mb-1">Available Credit</p>
+                  <p className="text-indigo-200 text-xs font-semibold tracking-wider uppercase mb-1">
+                    {metrics.isShared ? 'Shared Available Credit' : 'Available Credit'}
+                  </p>
                   <p className="text-2xl font-bold tracking-tight text-white/90">₹{metrics.available.toLocaleString('en-IN')}</p>
                 </div>
               </div>
 
               <div className="mt-8 relative z-10">
                 <div className="flex justify-between text-xs font-semibold mb-2">
-                  <span className="text-indigo-200">Credit Limit: ₹{metrics.limit.toLocaleString('en-IN')}</span>
-                  <span className={metrics.utilPercent > 30 ? 'text-amber-300' : 'text-emerald-300'}>{metrics.utilPercent}% Utilized</span>
+                  <span className="text-indigo-200">
+                    {metrics.isShared ? `Shared Limit (` : `Credit Limit: `}
+                    ₹{metrics.limit.toLocaleString('en-IN')}
+                    {metrics.isShared ? `) • Total Used: ₹${metrics.sharedLiability.toLocaleString('en-IN')}` : ''}
+                  </span>
+                  <span className={metrics.utilPercent > 30 ? 'text-amber-300' : 'text-emerald-300'}>{metrics.utilPercent}% Utilized {metrics.isShared && '(Combined)'}</span>
                 </div>
                 <div className="h-2 w-full bg-black/30 rounded-full overflow-hidden backdrop-blur-sm">
                   <motion.div 
@@ -381,9 +416,27 @@ export default function CreditCards() {
                   <input required value={cardForm.account_name} onChange={e => setCardForm({...cardForm, account_name: e.target.value})} className="input-field w-full" placeholder="e.g. HDFC Millennia" />
                 </div>
                 <div>
-                  <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Credit Limit (₹)</label>
-                  <input required type="number" step="0.01" min="0" value={cardForm.credit_limit} onChange={e => setCardForm({...cardForm, credit_limit: e.target.value})} className="input-field w-full" placeholder="100000.00" />
+                  <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Shared Limit With (Optional)</label>
+                  <select value={cardForm.shared_limit_with} onChange={e => {
+                      const val = e.target.value;
+                      setCardForm(prev => ({ 
+                        ...prev, 
+                        shared_limit_with: val,
+                        // Clear limit input if shared, wait, no, just disable below
+                      }));
+                    }} className="input-field w-full">
+                    <option value="">— Independent Limit —</option>
+                    {creditCards.filter(c => c.id !== (isEditMode ? activeCardId : null) && !c.shared_limit_with).map(c => (
+                      <option key={c.id} value={c.id}>Share with {c.account_name}</option>
+                    ))}
+                  </select>
                 </div>
+                {!cardForm.shared_limit_with && (
+                  <div>
+                    <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Credit Limit (₹)</label>
+                    <input required type="number" step="0.01" min="0" value={cardForm.credit_limit} onChange={e => setCardForm({...cardForm, credit_limit: e.target.value})} className="input-field w-full" placeholder="100000.00" />
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Cycle Start Day</label>

@@ -130,7 +130,9 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen, onCollapsed
       >
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 16px 20px', borderBottom: `1px solid ${sidebarBorder}` }}>
-          <SidebarLogo collapsed={collapsed} isDark={isDark} />
+          <NavLink to="/" onClick={handleNavClick} style={{ textDecoration: 'none' }}>
+            <SidebarLogo collapsed={collapsed} isDark={isDark} />
+          </NavLink>
           <button onClick={() => setMobileMenuOpen(false)} className="md:hidden"
             style={{ color: isDark ? '#6b7280' : '#9ca3af', background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
             <XMarkIcon style={{ width: 20, height: 20 }} />

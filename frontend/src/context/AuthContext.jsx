@@ -4,7 +4,8 @@ import {
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
   signOut, 
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider
 } from 'firebase/auth';
 import { auth, db } from '../config/firebase';
@@ -17,6 +18,21 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Handle redirect result after Google sign-in redirect
+    getRedirectResult(auth).then(async (result) => {
+      if (result?.user) {
+        const user = result.user;
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDocSnapshot = await getDoc(userDocRef);
+        if (!userDocSnapshot.exists()) {
+          await setDoc(userDocRef, {
+            email: user.email,
+            createdAt: serverTimestamp(),
+          });
+        }
+      }
+    }).catch(console.error);
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setCurrentUser(user);
@@ -48,22 +64,9 @@ export const AuthProvider = ({ children }) => {
 
   const loginWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
-    const result = await signInWithPopup(auth, provider);
-    const user = result.user;
-    
-    // Check if user document exists
-    const userDocRef = doc(db, 'users', user.uid);
-    const userDocSnapshot = await getDoc(userDocRef);
-    
-    if (!userDocSnapshot.exists()) {
-      // Create user profile in Firestore
-      await setDoc(userDocRef, {
-        email: user.email,
-        createdAt: serverTimestamp(),
-      });
-    }
-    
-    return result;
+    // Use redirect instead of popup to avoid COOP browser security violations
+    await signInWithRedirect(auth, provider);
+    // Page will redirect to Google and return — result handled in useEffect above
   };
 
   const logout = () => {

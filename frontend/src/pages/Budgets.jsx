@@ -18,7 +18,8 @@ import { fmt } from '../utils/format';
 
 /* ─── Status helper ─── */
 const getBudgetStatus = (pct) => {
-  if (pct >= 100) return { label: 'Over Budget', color: '#ef4444', bg: 'rgba(239,68,68,0.12)', icon: ExclamationTriangleIcon };
+  if (pct > 100) return { label: 'Over Budget', color: '#ef4444', bg: 'rgba(239,68,68,0.12)', icon: ExclamationTriangleIcon };
+  if (pct === 100) return { label: 'Completed', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)', icon: ShieldCheckIcon };
   if (pct >= 80)  return { label: 'Warning',     color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', icon: ExclamationTriangleIcon };
   return              { label: 'Safe',           color: '#1abf94', bg: 'rgba(26,191,148,0.10)', icon: ShieldCheckIcon };
 };
@@ -116,7 +117,7 @@ function BudgetCard({ cat, limit, spent = 0, salary, isDark, onSave, cycleInfo }
       onHoverEnd={() => setHovered(false)}
       style={{
         background: isDark ? '#161b22' : '#ffffff',
-        border: `1px solid ${pct >= 100 ? '#ef444444' : pct >= 80 ? '#f59e0b44' : isDark ? '#30363d' : '#e5e7eb'}`,
+        border: `1px solid ${pct > 100 ? '#ef444444' : pct === 100 ? '#3b82f644' : pct >= 80 ? '#f59e0b44' : isDark ? '#30363d' : '#e5e7eb'}`,
         borderRadius: 14, padding: '16px', position: 'relative', overflow: 'hidden',
         transition: 'box-shadow 0.2s, border-color 0.3s',
         boxShadow: hovered ? (isDark ? '0 4px 24px rgba(0,0,0,0.6)' : '0 4px 24px rgba(0,0,0,0.1)') : 'none',
@@ -176,7 +177,7 @@ function BudgetCard({ cat, limit, spent = 0, salary, isDark, onSave, cycleInfo }
                 initial={{ width: 0 }}
                 animate={{ width: `${cappedPct}%` }}
                 transition={{ duration: 0.8, ease: 'easeOut' }}
-                style={{ height: '100%', borderRadius: 99, background: pct >= 100 ? '#ef4444' : pct >= 80 ? '#f59e0b' : '#1abf94', position: 'relative' }}
+                style={{ height: '100%', borderRadius: 99, background: pct > 100 ? '#ef4444' : pct === 100 ? '#3b82f6' : pct >= 80 ? '#f59e0b' : '#1abf94', position: 'relative' }}
               />
               {/* Projected overlay */}
               {willExceed && hovered && (
@@ -379,7 +380,7 @@ export default function Budgets() {
   };
 
   const spendingCategories = useMemo(() =>
-    categories.filter(c => c.name !== 'Income'), [categories]
+    categories.filter(c => c.name !== 'Income' && c.name !== 'Transfer' && c.name !== 'Credit Card Payment'), [categories]
   );
 
   // Spend map directly from real-time aggregates

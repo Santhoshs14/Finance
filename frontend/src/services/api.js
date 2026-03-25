@@ -122,6 +122,10 @@ export const transactionsAPI = {
     const amount = parseFloat(data.amount);
     if (isNaN(amount) || amount === 0) throw new Error('Invalid amount');
 
+    if (data.payment_type === 'Self Transfer' && data.to_account_id) {
+      return await transactionsAPI.processTransfer({ ...data, amount: Math.abs(amount) }, cycleStartDay);
+    }
+
     const cycle = getFinancialCycleForDate(data.date, cycleStartDay);
     const txData = { ...data, amount, _cycleKey: cycle.cycleKey, createdAt: new Date().toISOString() };
     const txRef = doc(collection(db, `users/${uid}/transactions`));
@@ -174,6 +178,76 @@ export const transactionsAPI = {
     });
 
     return { id: txRef.id };
+  },
+
+  /**
+   * Process a Self Transfer between two accounts.
+   */
+  processTransfer: async (data, cycleStartDay = 25) => {
+    const uid = getUid();
+    const amount = Math.abs(parseFloat(data.amount));
+    
+    await runTransaction(db, async (transaction) => {
+      // 1. Reads
+      let fromType = 'bank';
+      let fromExists = false;
+      const fromRef = doc(db, `users/${uid}/accounts/${data.account_id}`);
+      const fromSnap = await transaction.get(fromRef);
+      if (fromSnap.exists()) {
+        fromExists = true;
+        fromType = fromSnap.data().type;
+      }
+      
+      let toType = 'bank';
+      let toExists = false;
+      const toRef = doc(db, `users/${uid}/accounts/${data.to_account_id}`);
+      const toSnap = await transaction.get(toRef);
+      if (toSnap.exists()) {
+        toExists = true;
+        toType = toSnap.data().type;
+      }
+
+      // 2. Writes
+      const cycle = getFinancialCycleForDate(data.date, cycleStartDay);
+      const debitRef = doc(collection(db, `users/${uid}/transactions`));
+      const creditRef = doc(collection(db, `users/${uid}/transactions`));
+
+      transaction.set(debitRef, {
+        amount: -amount,
+        account_id: data.account_id,
+        category: 'Transfer',
+        date: data.date,
+        notes: data.notes || 'Self Transfer (Outgoing)',
+        payment_type: 'Self Transfer',
+        _cycleKey: cycle.cycleKey,
+        createdAt: new Date().toISOString()
+      });
+
+      transaction.set(creditRef, {
+        amount: amount,
+        account_id: data.to_account_id,
+        category: 'Transfer',
+        date: data.date,
+        notes: data.notes || 'Self Transfer (Incoming)',
+        payment_type: 'Self Transfer',
+        _cycleKey: cycle.cycleKey,
+        createdAt: new Date().toISOString()
+      });
+
+      if (fromExists) {
+        if (fromType === 'credit') transaction.update(fromRef, { liability: increment(Math.round(amount * 100) / 100) });
+        else transaction.update(fromRef, { balance: increment(Math.round(-amount * 100) / 100) });
+      }
+      
+      if (toExists) {
+        if (toType === 'credit') transaction.update(toRef, { liability: increment(Math.round(-amount * 100) / 100) });
+        else transaction.update(toRef, { balance: increment(Math.round(amount * 100) / 100) });
+      }
+      
+      // No aggregate updates for transfers!
+    });
+    
+    return { success: true };
   },
 
   /**

@@ -14,7 +14,7 @@ import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../config/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { transactionsAPI } from '../services/api';
+import { transactionsAPI, budgetSnapshotsAPI } from '../services/api';
 import { generateInsightsFromAggregates } from '../utils/insights';
 import {
   ArrowUpIcon, ArrowDownIcon, PlusIcon,
@@ -78,7 +78,7 @@ const SpendingHeatmap = ({ transactions, isDark }) => {
   const daysSet = new Set(days);
   const spendByDay = {};
   transactions.forEach(t => {
-    if (t.amount < 0 && daysSet.has(t.date)) {
+    if (t.amount < 0 && daysSet.has(t.date) && t.category !== 'Transfer' && !t.payment_type?.includes('Transfer') && t.category !== 'Credit Card Payment') {
       spendByDay[t.date] = (spendByDay[t.date] || 0) + Math.abs(t.amount);
     }
   });
@@ -186,23 +186,43 @@ export default function Dashboard() {
     [transactions, currentCycle]
   );
 
-  const income   = cycleTxns.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
-  const expenses = cycleTxns.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
-  const savingsRate = income > 0 ? ((income - expenses) / income * 100) : 0;
+  const income   = cycleTxns
+    .filter(t => t.amount > 0 && t.category !== 'Transfer' && !t.payment_type?.includes('Transfer') && t.category !== 'Credit Card Payment')
+    .reduce((s, t) => s + t.amount, 0);
+  const savingsTxns = cycleTxns.filter(t => t.amount < 0 && (t.category === 'Investment' || t.category === 'Savings'));
+  const totalSavedInCycle = savingsTxns.reduce((s, t) => s + Math.abs(t.amount), 0);
+  const savingsRate = income > 0 ? (totalSavedInCycle / income * 100) : 0;
+
+  const { data: budgetLimits = {} } = useQuery({
+    queryKey: ['dashboardBudgets', currentCycle?.cycleKey],
+    queryFn: async () => {
+      const data = await budgetSnapshotsAPI.get(currentCycle.cycleKey);
+      if (!data) return {};
+      const limitMap = {};
+      Object.entries(data).forEach(([catId, doc]) => {
+        limitMap[doc.categoryId || catId] = typeof doc === 'object' ? (doc.limit ?? 0) : doc;
+      });
+      return limitMap;
+    },
+    enabled: !!currentCycle?.cycleKey,
+  });
 
   // Budget progress from currentAggregate
   const budgetUsage = useMemo(() => {
     const breakdown = currentAggregate?.categoryBreakdown || {};
     return Object.entries(breakdown)
-      .filter(([cat]) => cat !== 'Income')
-      .map(([cat, spent]) => ({ category: cat, spent, monthly_limit: 0 }))
+      .filter(([cat]) => cat !== 'Income' && cat !== 'Transfer' && cat !== 'Credit Card Payment')
+      .map(([cat, spent]) => {
+         const catId = categories.find(c => c.name === cat)?.id;
+         return { category: cat, spent, monthly_limit: catId ? (budgetLimits[catId] || 0) : 0 };
+      })
       .sort((a, b) => b.spent - a.spent)
       .slice(0, 5);
-  }, [currentAggregate]);
+  }, [currentAggregate, budgetLimits, categories]);
 
   // Local insights generated cleanly from aggregates and context
   const insights = useMemo(() => {
-    const generated = generateInsightsFromAggregates(currentAggregate, null, accounts);
+    const generated = generateInsightsFromAggregates(currentAggregate, null, accounts, savingsRate);
     if (bankAccounts.some(a => a.balance < 1000)) {
       generated.push({ type: 'warning', title: 'Low Balance', message: 'One or more bank accounts have a low balance. Consider a top-up.' });
     }
@@ -211,7 +231,8 @@ export default function Dashboard() {
 
   /* ─── Chart data ─── */
   const categoryData = transactions.reduce((acc, txn) => {
-    if (txn.category !== 'Income' && txn.amount < 0) {
+    const isTrans = txn.category === 'Transfer' || txn.payment_type?.includes('Transfer') || txn.category === 'Credit Card Payment';
+    if (txn.category !== 'Income' && txn.amount < 0 && !isTrans) {
       const ex = acc.find(i => i.name === txn.category);
       const col = categories.find(c => c.name === txn.category)?.color || '#94a3b8';
       if (ex) ex.value += Math.abs(txn.amount);
@@ -221,6 +242,7 @@ export default function Dashboard() {
   }, []).sort((a, b) => b.value - a.value);
 
   const monthlyData = transactions.reduce((acc, txn) => {
+    if (txn.category === 'Transfer' || txn.payment_type?.includes('Transfer') || txn.category === 'Credit Card Payment') return acc;
     const key = getShortFinancialMonthLabelForDate(txn.date, cycleStartDay);
     const ex = acc.find(i => i.month === key);
     const amt = Math.abs(txn.amount);

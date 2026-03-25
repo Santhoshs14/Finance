@@ -14,10 +14,11 @@ const paymentColors = {
   'Credit Card': 'bg-purple-500/15 text-purple-600',
   'Debit Card':  'bg-blue-500/15 text-blue-600',
   'UPI':         'bg-orange-500/15 text-orange-600',
+  'Self Transfer': 'bg-gray-500/15 text-gray-400',
 };
 
 const paymentIcons = {
-  'Cash': '💵', 'Credit Card': '💳', 'Debit Card': '🏧', 'UPI': '📱',
+  'Cash': '💵', 'Credit Card': '💳', 'Debit Card': '🏧', 'UPI': '📱', 'Self Transfer': '🔄',
 };
 
 /**
@@ -56,6 +57,10 @@ export default function TransactionTable({ transactions, onEdit, onDelete, categ
         <tbody>
           {transactions.map((txn, i) => {
             const catColor = resolveCatColor(txn.category, categories);
+            const isTransfer = txn.payment_type === 'Self Transfer' || txn.category === 'Transfer';
+            const amountColor = isTransfer ? 'text-blue-500' : (txn.amount < 0 ? 'text-red-500' : 'text-emerald-500');
+            const sign = isTransfer ? (txn.amount < 0 ? '↗ ' : '↘ ') : (txn.amount < 0 ? '-' : '+');
+            
             return (
               <motion.tr
                 key={txn.id}
@@ -98,12 +103,12 @@ export default function TransactionTable({ transactions, onEdit, onDelete, categ
                 <td className={`py-3 px-4 text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'} max-w-[180px] truncate`}>
                   {txn.notes || '—'}
                 </td>
-                <td className={`py-3 px-4 text-sm text-right font-semibold whitespace-nowrap ${txn.amount < 0 ? 'text-red-500' : 'text-emerald-500'}`}>
-                  {txn.amount < 0 ? '-' : '+'}₹{Math.abs(txn.amount).toLocaleString('en-IN')}
+                <td className={`py-3 px-4 text-sm text-right font-semibold whitespace-nowrap ${amountColor}`}>
+                  {sign}₹{Math.abs(txn.amount).toLocaleString('en-IN')}
                 </td>
                 <td className="py-3 px-4 text-right">
                   <div className="flex gap-1.5 justify-end">
-                    {onEdit && (
+                    {onEdit && !isTransfer && txn.category !== 'Credit Card Payment' && txn.category !== 'Investment' && (
                       <button
                         onClick={() => onEdit(txn)}
                         className={`text-xs px-2.5 py-1 rounded-lg ${isDark ? 'hover:bg-dark-700 text-dark-400' : 'hover:bg-dark-100 text-dark-500'} transition-colors`}

@@ -106,15 +106,15 @@ export default function Transactions() {
   const textSub  = isDark ? '#9ca3af' : '#6b7280';
   const borderColor = isDark ? '#252f3e' : '#e5e7eb';
 
-  /* ─── Analytics ─── */
   const analytics = useMemo(() => {
     if (!transactions.length) return { totalSpent: 0, totalIncome: 0, topCategory: '—', dailyAvg: 0, count: 0 };
-    const totalSpent = transactions.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
-    const totalIncome = transactions.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+    const validTxns = transactions.filter(t => t.category !== 'Transfer' && !t.payment_type?.includes('Transfer') && t.category !== 'Credit Card Payment');
+    const totalSpent = validTxns.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
+    const totalIncome = validTxns.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
     const catMap = {};
-    transactions.forEach(t => { if (t.amount < 0 && t.category !== 'Income') catMap[t.category] = (catMap[t.category] || 0) + Math.abs(t.amount); });
+    validTxns.forEach(t => { if (t.amount < 0 && t.category !== 'Income') catMap[t.category] = (catMap[t.category] || 0) + Math.abs(t.amount); });
     const topCategory = Object.entries(catMap).sort((a, b) => b[1] - a[1])[0]?.[0] || '\u2014';
-    const days = [...new Set(transactions.filter(t => t.amount < 0).map(t => t.date))].length || 1;
+    const days = [...new Set(validTxns.filter(t => t.amount < 0).map(t => t.date))].length || 1;
     return { totalSpent, totalIncome, topCategory, dailyAvg: totalSpent / days, count: transactions.length };
   }, [transactions]);
 
@@ -255,8 +255,9 @@ export default function Transactions() {
         ) : (
           <>
             {grouped.map(([date, dayTxns]) => {
-              const daySpent = dayTxns.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
-              const dayIncome = dayTxns.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+              const validDayTxns = dayTxns.filter(t => t.category !== 'Transfer' && !t.payment_type?.includes('Transfer') && t.category !== 'Credit Card Payment');
+              const daySpent = validDayTxns.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
+              const dayIncome = validDayTxns.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
               const d = new Date(date + 'T00:00:00');
               const dateLabel = d.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' });
               return (

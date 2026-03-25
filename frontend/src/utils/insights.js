@@ -6,14 +6,28 @@
 
 import { calculateCCUtilization } from './calculations';
 
-export const generateInsightsFromAggregates = (aggregate, budgets, accounts) => {
+export const generateInsightsFromAggregates = (aggregate, budgets, accounts, actualSavingsRate = undefined) => {
   const insights = [];
   if (!aggregate) return insights;
 
   const { totalSpent = 0, totalIncome = 0, categoryBreakdown = {} } = aggregate;
 
   // 1. Savings Rate Anomaly
-  if (totalIncome > 0) {
+  if (actualSavingsRate !== undefined) {
+    if (actualSavingsRate > 0 && actualSavingsRate < 10) {
+      insights.push({
+        type: 'warning',
+        title: 'Low Savings Rate',
+        message: `Your savings rate is currently ${actualSavingsRate.toFixed(1)}%. Try to keep it above 20%.`,
+      });
+    } else if (actualSavingsRate > 40) {
+      insights.push({
+        type: 'success',
+        title: 'Excellent Savings Rate',
+        message: `You are saving ${actualSavingsRate.toFixed(1)}% of your income! Keep it up!`,
+      });
+    }
+  } else if (totalIncome > 0) {
     const savingsRate = ((totalIncome - totalSpent) / totalIncome) * 100;
     if (savingsRate < 10) {
       insights.push({

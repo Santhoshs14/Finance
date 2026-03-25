@@ -15,12 +15,11 @@ const defaultForm = {
   category: 'Food',
   payment_type: 'Cash',
   account_id: '',
+  to_account_id: '',
   notes: '',
   is_recurring: false,
   recurrence_interval: 'monthly',
 };
-
-const today = new Date().toISOString().split('T')[0];
 
 /* ─── Keyword → Category suggestion map ─── */
 const KEYWORD_MAP = [
@@ -73,6 +72,7 @@ export default function QuickAddTransaction({
         category:            initialData.category || 'Food',
         payment_type:        initialData.payment_type || 'Cash',
         account_id:          initialData.account_id || initialData.credit_card_id || '',
+        to_account_id:       initialData.to_account_id || '',
         notes:               initialData.notes || '',
         is_recurring:        initialData.is_recurring || false,
         recurrence_interval: initialData.recurrence_interval || 'monthly',
@@ -99,13 +99,16 @@ export default function QuickAddTransaction({
       ...prev,
       payment_type: newType,
       account_id: '',
+      to_account_id: '',
+      category: newType === 'Self Transfer' ? 'Transfer' : prev.category,
     }));
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
 
-    if (form.date > today) {
+    const currentToday = getLocalISODate();
+    if (form.date > currentToday) {
       toast.error('Future dates are not allowed for transactions.');
       return;
     }
@@ -141,8 +144,9 @@ export default function QuickAddTransaction({
 
   const isEdit = !!initialData;
   const paymentType = form.payment_type;
-  const showCreditCardSelector = paymentType === 'Credit Card' && creditCards.length > 0;
-  const showAccountSelector    = (paymentType === 'Debit Card' || paymentType === 'UPI') && accounts.length > 0;
+  const isTransfer = paymentType === 'Self Transfer';
+  const showCreditCardSelector = !isTransfer && paymentType === 'Credit Card' && creditCards.length > 0;
+  const showAccountSelector    = !isTransfer && (paymentType === 'Debit Card' || paymentType === 'UPI') && accounts.length > 0;
 
   const label = (text) => (
     <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4, color: isDark ? '#9ca3af' : '#6b7280' }}>{text}</label>
@@ -178,7 +182,7 @@ export default function QuickAddTransaction({
             <div>
               {label('Date')}
               <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
-                className="input-field" style={{ width: '100%' }} max={today} required />
+                className="input-field" style={{ width: '100%' }} max={getLocalISODate()} required />
             </div>
             <div>
               {label('Amount (₹)')}
@@ -191,13 +195,19 @@ export default function QuickAddTransaction({
           <div className="grid grid-cols-2 gap-4">
             <div>
               {label('Category')}
-              <select value={form.category} onChange={(e) => { setForm({ ...form, category: e.target.value }); setSuggestion(null); }}
-                className="input-field" style={{ width: '100%' }}>
-                {categories.length > 0
-                  ? categories.map((c) => <option key={c.id || c.name} value={c.name}>{c.name}</option>)
-                  : ['Food','Income','Other'].map(c => <option key={c} value={c}>{c}</option>)
-                }
-              </select>
+              {isTransfer ? (
+                <div style={{ padding: '9px 12px', borderRadius: 8, background: isDark ? '#1a2235' : '#f3f4f6', border: `1px solid ${isDark ? '#252f3e' : '#e5e7eb'}`, fontSize: 13, color: isDark ? '#9ca3af' : '#6b7280' }}>
+                  Transfer
+                </div>
+              ) : (
+                <select value={form.category} onChange={(e) => { setForm({ ...form, category: e.target.value }); setSuggestion(null); }}
+                  className="input-field" style={{ width: '100%' }}>
+                  {categories.length > 0
+                    ? categories.map((c) => <option key={c.id || c.name} value={c.name}>{c.name}</option>)
+                    : ['Food','Income','Other'].map(c => <option key={c} value={c}>{c}</option>)
+                  }
+                </select>
+              )}
             </div>
             <div>
               {label('Payment Method')}
@@ -207,6 +217,7 @@ export default function QuickAddTransaction({
                 <option value="Credit Card">💳 Credit Card</option>
                 <option value="Debit Card">🏦 Debit Card</option>
                 <option value="UPI">📱 UPI</option>
+                <option value="Self Transfer">🔄 Self Transfer</option>
               </select>
             </div>
           </div>
@@ -234,6 +245,29 @@ export default function QuickAddTransaction({
                   <option key={a.id} value={a.id}>{a.account_name} (₹{parseFloat(a.balance || 0).toLocaleString('en-IN')})</option>
                 ))}
               </select>
+            </div>
+          )}
+
+          {isTransfer && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                {label('From Account')}
+                <select value={form.account_id} onChange={(e) => setForm({ ...form, account_id: e.target.value })}
+                  className="input-field" style={{ width: '100%' }} required>
+                  <option value="">— Select source —</option>
+                  {accounts.map(a => <option key={a.id} value={a.id}>{a.account_name} (₹{parseFloat(a.balance || 0).toLocaleString('en-IN')})</option>)}
+                  {creditCards.map(c => <option key={c.id} value={c.id}>{c.account_name} (CC)</option>)}
+                </select>
+              </div>
+              <div>
+                {label('To Account')}
+                <select value={form.to_account_id} onChange={(e) => setForm({ ...form, to_account_id: e.target.value })}
+                  className="input-field" style={{ width: '100%' }} required>
+                  <option value="">— Select destination —</option>
+                  {accounts.map(a => <option key={a.id} value={a.id}>{a.account_name} (₹{parseFloat(a.balance || 0).toLocaleString('en-IN')})</option>)}
+                  {creditCards.map(c => <option key={c.id} value={c.id}>{c.account_name} (CC)</option>)}
+                </select>
+              </div>
             </div>
           )}
 

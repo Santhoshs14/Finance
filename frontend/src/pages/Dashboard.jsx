@@ -129,7 +129,7 @@ export default function Dashboard() {
 
   // Local state for removed context collections
   const [goals, setGoals] = useState([]);
-  const [investments, setInvestments] = useState([]);
+  const [mutualFunds, setMutualFunds] = useState([]);
   const [lending, setLending] = useState([]);
   const [metricsLoading, setMetricsLoading] = useState(true);
 
@@ -143,7 +143,7 @@ export default function Dashboard() {
     if (!currentUser) return;
     const unsubs = [
       onSnapshot(collection(db, `users/${currentUser.uid}/goals`), snap => setGoals(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
-      onSnapshot(collection(db, `users/${currentUser.uid}/investments`), snap => setInvestments(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
+      onSnapshot(collection(db, `users/${currentUser.uid}/mutualFunds`), snap => setMutualFunds(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(collection(db, `users/${currentUser.uid}/lending`), snap => setLending(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
     ];
     setMetricsLoading(false);
@@ -165,8 +165,8 @@ export default function Dashboard() {
   const accountsBalance = bankAccounts.reduce((s, a) => s + (a.balance || 0), 0);
 
   // Investment portfolio sum
-  const totalSavings = investments.reduce((s, inv) => {
-    const val = parseFloat(inv.current_value || inv.value || 0);
+  const totalSavings = mutualFunds.reduce((s, mf) => {
+    const val = mf.current_nav ? parseFloat(mf.current_nav) * parseFloat(mf.units) : parseFloat(mf.invested_amount || 0);
     return s + val;
   }, 0);
 

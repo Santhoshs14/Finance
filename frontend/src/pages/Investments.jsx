@@ -75,7 +75,34 @@ export default function Investments() {
   });
 
   const updateMFMutation = useMutation({
-    mutationFn: async ({ id, data }) => mutualFundsAPI.update(id, data),
+    mutationFn: async ({ id, data }) => {
+      const oldMf = mutualFunds.find(mf => mf.id === id);
+      const oldInvested = oldMf ? (oldMf.units * oldMf.average_nav) : 0;
+      const newInvested = data.units * data.average_nav;
+      
+      const oldGoalId = oldMf?.linked_goal_id;
+      const newGoalId = data.linked_goal_id;
+
+      // Handle Linked Goal mathematics
+      if (oldGoalId === newGoalId && oldGoalId) {
+        const diff = newInvested - oldInvested;
+        if (diff !== 0) {
+          const goal = goals.find(g => g.id === oldGoalId);
+          if (goal) await goalsAPI.update(goal.id, { current_amount: Math.max(0, (goal.current_amount || 0) + diff) });
+        }
+      } else {
+        if (oldGoalId) {
+          const oldGoal = goals.find(g => g.id === oldGoalId);
+          if (oldGoal) await goalsAPI.update(oldGoal.id, { current_amount: Math.max(0, (oldGoal.current_amount || 0) - oldInvested) });
+        }
+        if (newGoalId) {
+          const newGoal = goals.find(g => g.id === newGoalId);
+          if (newGoal) await goalsAPI.update(newGoal.id, { current_amount: (newGoal.current_amount || 0) + newInvested });
+        }
+      }
+
+      await mutualFundsAPI.update(id, data);
+    },
     onSuccess: () => { 
       invalidateAll(); toast.success('Mutual Fund updated!'); 
       handleCloseForm();
@@ -84,7 +111,15 @@ export default function Investments() {
   });
 
   const deleteMFMutation = useMutation({
-    mutationFn: async (id) => mutualFundsAPI.delete(id),
+    mutationFn: async (id) => {
+      const oldMf = mutualFunds.find(mf => mf.id === id);
+      if (oldMf?.linked_goal_id) {
+        const oldInvested = oldMf.units * oldMf.average_nav;
+        const goal = goals.find(g => g.id === oldMf.linked_goal_id);
+        if (goal) await goalsAPI.update(goal.id, { current_amount: Math.max(0, (goal.current_amount || 0) - oldInvested) });
+      }
+      await mutualFundsAPI.delete(id);
+    },
     onSuccess: () => { invalidateAll(); toast.success('Fund deleted successfully!'); },
     onError: () => toast.error('Failed to delete fund')
   });

@@ -258,26 +258,58 @@ export const transactionsAPI = {
       }
 
       // 3. Reverse old aggregate & apply new
-      const applyAgg = (aggCycleKey, txData, sign) => {
-        const aggRef = doc(db, `users/${uid}/aggregates/${aggCycleKey}`);
+      if (oldCycleKey === newCycleKey) {
+        const aggRef = doc(db, `users/${uid}/aggregates/${oldCycleKey}`);
         const upd = { updatedAt: new Date().toISOString() };
-        const amt = parseFloat(txData.amount || 0);
-        if (amt > 0) {
-          upd.totalIncome = increment(sign * amt);
-        } else if (amt < 0) {
-          upd.totalSpent = increment(sign * Math.abs(amt));
+        
+        let incomeDelta = 0;
+        let spentDelta = 0;
+        const catDeltas = {};
+        
+        if (oldAmount > 0) incomeDelta -= oldAmount;
+        else if (oldAmount < 0) {
+          spentDelta -= Math.abs(oldAmount);
+          if (old.category) catDeltas[old.category] = (catDeltas[old.category] || 0) - Math.abs(oldAmount);
         }
-        // Only update categoryBreakdown for expenses (not income)
-        if (txData.category && amt < 0) {
-          upd.categoryBreakdown = {
-            [txData.category]: increment(sign * Math.abs(amt))
-          };
+        
+        if (newAmount > 0) incomeDelta += newAmount;
+        else if (newAmount < 0) {
+          spentDelta += Math.abs(newAmount);
+          if (newData.category) catDeltas[newData.category] = (catDeltas[newData.category] || 0) + Math.abs(newAmount);
+        }
+        
+        if (incomeDelta !== 0) upd.totalIncome = increment(incomeDelta);
+        if (spentDelta !== 0) upd.totalSpent = increment(spentDelta);
+        
+        const validCatKeys = Object.entries(catDeltas).filter(([k, v]) => v !== 0);
+        if (validCatKeys.length > 0) {
+          upd.categoryBreakdown = {};
+          for (const [cat, delta] of validCatKeys) {
+            upd.categoryBreakdown[cat] = increment(delta);
+          }
         }
         transaction.set(aggRef, upd, { merge: true });
-      };
+      } else {
+        const applyAgg = (aggCycleKey, txData, sign) => {
+          const aggRef = doc(db, `users/${uid}/aggregates/${aggCycleKey}`);
+          const upd = { updatedAt: new Date().toISOString() };
+          const amt = parseFloat(txData.amount || 0);
+          if (amt > 0) {
+            upd.totalIncome = increment(sign * amt);
+          } else if (amt < 0) {
+            upd.totalSpent = increment(sign * Math.abs(amt));
+          }
+          if (txData.category && amt < 0) {
+            upd.categoryBreakdown = {
+              [txData.category]: increment(sign * Math.abs(amt))
+            };
+          }
+          transaction.set(aggRef, upd, { merge: true });
+        };
 
-      applyAgg(oldCycleKey, old, -1);
-      applyAgg(newCycleKey, newData, 1);
+        applyAgg(oldCycleKey, old, -1);
+        applyAgg(newCycleKey, newData, 1);
+      }
     });
   },
 

@@ -270,7 +270,7 @@ export default function Dashboard() {
                 <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <PieChart>
                     <Pie data={categoryData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3} dataKey="value" stroke="none">
-                      {categoryData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                      {categoryData.map((item, i) => <Cell key={i} fill={item.color} />)}
                     </Pie>
                     <Tooltip content={<CustomTooltip isDark={isDark} />} />
                   </PieChart>
@@ -279,7 +279,7 @@ export default function Dashboard() {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                 {categoryData.slice(0, 5).map((item, i) => (
                   <span key={i} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: isDark ? '#252f3e' : '#f3f4f6', color: textMain, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: CHART_COLORS[i % CHART_COLORS.length] }} />{item.name}
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: item.color }} />{item.name}
                   </span>
                 ))}
               </div>
@@ -374,7 +374,7 @@ export default function Dashboard() {
       <AnimatePresence>
         {showQuickAdd && (
           <QuickAddTransaction isOpen={showQuickAdd} onClose={() => setShowQuickAdd(false)}
-            onSubmit={(data) => addTxnMutation.mutate(data)} accounts={bankAccounts} creditCards={creditCards} />
+            onSubmit={(data) => addTxnMutation.mutate(data)} accounts={bankAccounts} creditCards={creditCards} categories={categories} />
         )}
       </AnimatePresence>
     </div>

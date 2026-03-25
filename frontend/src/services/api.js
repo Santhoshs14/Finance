@@ -161,7 +161,9 @@ export const transactionsAPI = {
         }
         // Only add expenses to categoryBreakdown (not income)
         if (txData.category && amount < 0) {
-          aggUpdate[`categoryBreakdown.${txData.category}`] = increment(Math.abs(amount));
+          aggUpdate.categoryBreakdown = {
+            [txData.category]: increment(Math.abs(amount))
+          };
         }
         transaction.set(aggRef, aggUpdate, { merge: true });
       }
@@ -267,7 +269,9 @@ export const transactionsAPI = {
         }
         // Only update categoryBreakdown for expenses (not income)
         if (txData.category && amt < 0) {
-          upd[`categoryBreakdown.${txData.category}`] = increment(sign * Math.abs(amt));
+          upd.categoryBreakdown = {
+            [txData.category]: increment(sign * Math.abs(amt))
+          };
         }
         transaction.set(aggRef, upd, { merge: true });
       };
@@ -323,7 +327,9 @@ export const transactionsAPI = {
       }
       // Only reverse categoryBreakdown for expenses (not income)
       if (txData.category && amount < 0) {
-        aggUpd[`categoryBreakdown.${txData.category}`] = increment(-Math.abs(amount));
+        aggUpd.categoryBreakdown = {
+          [txData.category]: increment(-Math.abs(amount))
+        };
       }
       transaction.set(aggRef, aggUpd, { merge: true });
     });
@@ -710,8 +716,11 @@ export const importAPI = {
               const updateVars = { updatedAt: new Date().toISOString() };
               if (deltas.income > 0) updateVars.totalIncome = increment(deltas.income);
               if (deltas.spent > 0) updateVars.totalSpent = increment(deltas.spent);
-              for (const [cat, v] of Object.entries(deltas.cat)) {
-                if (v > 0) updateVars[`categoryBreakdown.${cat}`] = increment(v);
+              if (Object.keys(deltas.cat).length > 0) {
+                updateVars.categoryBreakdown = {};
+                for (const [cat, v] of Object.entries(deltas.cat)) {
+                  if (v > 0) updateVars.categoryBreakdown[cat] = increment(v);
+                }
               }
               finalizeBatch.set(aggRef, updateVars, { merge: true });
               

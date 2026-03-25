@@ -129,17 +129,21 @@ export const transactionsAPI = {
     await runTransaction(db, async (transaction) => {
       // Read account type inside the transaction for consistency
       let accType = 'bank';
+      let accExists = false;
       if (data.account_id) {
         const accRef = doc(db, `users/${uid}/accounts/${data.account_id}`);
         const accSnap = await transaction.get(accRef);
-        accType = accSnap.exists() ? accSnap.data().type : 'bank';
+        if (accSnap.exists()) {
+          accExists = true;
+          accType = accSnap.data().type;
+        }
       }
 
       // 1. Write transaction doc
       transaction.set(txRef, txData);
 
       // 2. Account balance / liability
-      if (data.account_id) {
+      if (data.account_id && accExists) {
         const accRef = doc(db, `users/${uid}/accounts/${data.account_id}`);
         if (accType === 'credit') {
           const delta = -amount;
@@ -202,24 +206,42 @@ export const transactionsAPI = {
         updatedAt: new Date().toISOString(),
       };
 
-      // Read account types inside transaction
-      const getAccountType = async (accId) => {
-        if (!accId) return null;
-        const snap = await transaction.get(doc(db, `users/${uid}/accounts/${accId}`));
-        return snap.exists() ? snap.data().type : 'bank';
-      };
+      // Read account types BEFORE any writes
+      let oldAccountType = 'bank';
+      let oldAccountExists = false;
+      if (oldAccountId) {
+        const snap = await transaction.get(doc(db, `users/${uid}/accounts/${oldAccountId}`));
+        if (snap.exists()) {
+          oldAccountExists = true;
+          oldAccountType = snap.data().type;
+        }
+      }
+      
+      let newAccountType = 'bank';
+      let newAccountExists = false;
+      if (newAccountId) {
+        if (newAccountId === oldAccountId) {
+          newAccountExists = oldAccountExists;
+          newAccountType = oldAccountType;
+        } else {
+          const snap = await transaction.get(doc(db, `users/${uid}/accounts/${newAccountId}`));
+          if (snap.exists()) {
+            newAccountExists = true;
+            newAccountType = snap.data().type;
+          }
+        }
+      }
 
       // 1. Update transaction doc
       transaction.update(doc(db, `users/${uid}/transactions/${id}`), newData);
 
       // 2. Reverse & reapply account balance/liability
       if (oldAccountId === newAccountId) {
-        if (oldAccountId) {
-          const type = await getAccountType(oldAccountId);
+        if (oldAccountId && oldAccountExists) {
           let balDelta = newAmount - oldAmount;
 
           if (balDelta !== 0) {
-            if (type === 'credit') {
+            if (oldAccountType === 'credit') {
               transaction.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
                 liability: increment(Math.round(-balDelta * 100) / 100),
               });
@@ -231,9 +253,8 @@ export const transactionsAPI = {
           }
         }
       } else {
-        if (oldAccountId) {
-          const type = await getAccountType(oldAccountId);
-          if (type === 'credit') {
+        if (oldAccountId && oldAccountExists) {
+          if (oldAccountType === 'credit') {
             transaction.update(doc(db, `users/${uid}/accounts/${oldAccountId}`), {
               liability: increment(Math.round(oldAmount * 100) / 100),
             });
@@ -243,9 +264,8 @@ export const transactionsAPI = {
             });
           }
         }
-        if (newAccountId) {
-          const type = await getAccountType(newAccountId);
-          if (type === 'credit') {
+        if (newAccountId && newAccountExists) {
+          if (newAccountType === 'credit') {
             transaction.update(doc(db, `users/${uid}/accounts/${newAccountId}`), {
               liability: increment(Math.round(-newAmount * 100) / 100),
             });
@@ -334,14 +354,24 @@ export const transactionsAPI = {
       const amount = parseFloat(txData.amount || 0);
       const cycleKey = txData._cycleKey || getFinancialCycleForDate(txData.date, cycleStartDay).cycleKey;
 
+      // Read account type BEFORE deletes/updates
+      let accType = 'bank';
+      let accExists = false;
+      if (txData.account_id && amount !== 0) {
+        const accRef = doc(db, `users/${uid}/accounts/${txData.account_id}`);
+        const accSnap = await transaction.get(accRef);
+        if (accSnap.exists()) {
+          accExists = true;
+          accType = accSnap.data().type;
+        }
+      }
+
       // 1. Delete transaction
       transaction.delete(txDocRef);
 
       // 2. Reverse account balance/liability
-      if (txData.account_id && amount !== 0) {
+      if (txData.account_id && amount !== 0 && accExists) {
         const accRef = doc(db, `users/${uid}/accounts/${txData.account_id}`);
-        const accSnap = await transaction.get(accRef);
-        const accType = accSnap.exists() ? accSnap.data().type : 'bank';
         if (accType === 'credit') {
           transaction.update(accRef, { liability: increment(Math.round(amount * 100) / 100) });
         } else {
@@ -376,14 +406,29 @@ export const transactionsAPI = {
     const accSnap = await getDocs(collection(db, `users/${uid}/accounts`));
     const aggSnap = await getDocs(collection(db, `users/${uid}/aggregates`));
 
+    // Calculate sum of transactions per account to reverse them mathematically
+    const accountDeltas = {};
+    txSnap.docs.forEach(d => {
+      const tx = d.data();
+      if (tx.account_id && tx.amount) {
+         accountDeltas[tx.account_id] = (accountDeltas[tx.account_id] || 0) + parseFloat(tx.amount);
+      }
+    });
+
     // Firestore batch has 500 doc limit — chunk if needed
     const allWrites = [
       ...txSnap.docs.map(d => ({ type: 'delete', ref: d.ref })),
       ...accSnap.docs.map(d => {
         const accData = d.data();
-        if (accData.type === 'credit') return { type: 'update', ref: d.ref, data: { liability: 0 } };
-        return { type: 'update', ref: d.ref, data: { balance: 0 } };
-      }),
+        const delta = accountDeltas[d.id] || 0;
+        if (delta === 0) return null;
+        
+        if (accData.type === 'credit') {
+          return { type: 'update', ref: d.ref, data: { liability: increment(Math.round(delta * 100) / 100) } };
+        } else {
+          return { type: 'update', ref: d.ref, data: { balance: increment(Math.round(-delta * 100) / 100) } };
+        }
+      }).filter(Boolean),
       ...aggSnap.docs.map(d => ({ type: 'delete', ref: d.ref })),
     ];
 

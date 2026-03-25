@@ -18,6 +18,7 @@ export default function Investments() {
   const { isDark } = useTheme();
   const queryClient = useQueryClient();
   const [showAddMF, setShowAddMF] = useState(false);
+  const [editMfId, setEditMfId] = useState(null);
   const [mfForm, setMfForm] = useState({ 
     fund_name: '', average_nav: '', units: '', current_nav: '', sip_amount: '', linked_goal_id: '', account_id: '' 
   });
@@ -44,6 +45,12 @@ export default function Investments() {
 
   const invalidateAll = () => queryClient.invalidateQueries({ queryKey: ['mutualFunds'] });
 
+  const handleCloseForm = () => {
+    setShowAddMF(false);
+    setEditMfId(null);
+    setMfForm({ fund_name: '', average_nav: '', units: '', current_nav: '', sip_amount: '', linked_goal_id: '', account_id: '' });
+  };
+
   const addMFMutation = useMutation({
     mutationFn: async (data) => {
       const investedValue = data.units * data.average_nav;
@@ -62,10 +69,24 @@ export default function Investments() {
     },
     onSuccess: () => { 
       invalidateAll(); toast.success('Mutual Fund / SIP added!'); 
-      setShowAddMF(false); 
-      setMfForm({ fund_name: '', average_nav: '', units: '', current_nav: '', sip_amount: '', linked_goal_id: '', account_id: '' }); 
+      handleCloseForm();
     },
     onError: () => toast.error('Failed to add fund')
+  });
+
+  const updateMFMutation = useMutation({
+    mutationFn: async ({ id, data }) => mutualFundsAPI.update(id, data),
+    onSuccess: () => { 
+      invalidateAll(); toast.success('Mutual Fund updated!'); 
+      handleCloseForm();
+    },
+    onError: () => toast.error('Failed to update fund')
+  });
+
+  const deleteMFMutation = useMutation({
+    mutationFn: async (id) => mutualFundsAPI.delete(id),
+    onSuccess: () => { invalidateAll(); toast.success('Fund deleted successfully!'); },
+    onError: () => toast.error('Failed to delete fund')
   });
 
   const updateNavMutation = useMutation({
@@ -78,13 +99,19 @@ export default function Investments() {
 
   const handleAddMF = (e) => { 
     e.preventDefault(); 
-    addMFMutation.mutate({ 
+    const payload = { 
       ...mfForm, 
       average_nav: parseFloat(mfForm.average_nav), 
       units: parseFloat(mfForm.units), 
       current_nav: parseFloat(mfForm.current_nav) || parseFloat(mfForm.average_nav),
       sip_amount: mfForm.sip_amount ? parseFloat(mfForm.sip_amount) : 0 
-    }); 
+    };
+
+    if (editMfId) {
+      updateMFMutation.mutate({ id: editMfId, data: payload });
+    } else {
+      addMFMutation.mutate(payload);
+    }
   };
 
   const handleSaveNav = (id) => {
@@ -121,35 +148,40 @@ export default function Investments() {
           <h1 className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Mutual Funds & SIPs</h1>
           <p className={`mt-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Simplifying your wealth creation</p>
         </div>
-        <motion.button whileTap={{ scale: 0.95 }} onClick={() => setShowAddMF(!showAddMF)} className="btn-primary flex items-center gap-2">
+        <motion.button whileTap={{ scale: 0.95 }} onClick={() => { setEditMfId(null); setMfForm({ fund_name: '', average_nav: '', units: '', current_nav: '', sip_amount: '', linked_goal_id: '', account_id: '' }); setShowAddMF(!showAddMF); }} className="btn-primary flex items-center gap-2">
           <PlusIcon className="w-5 h-5" /> Add Fund / SIP
         </motion.button>
       </div>
 
       {showAddMF && (
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="glass-card p-6 mb-6">
-          <h3 className={`text-lg font-bold mb-4 ${isDark ? 'text-white' : 'text-dark-900'}`}>New Mutual Fund / SIP</h3>
+        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="glass-card p-6 mb-6 relative">
+          <button onClick={handleCloseForm} className="absolute top-4 right-4 text-sm font-semibold text-gray-400 hover:text-gray-600">Close</button>
+          <h3 className={`text-lg font-bold mb-4 ${isDark ? 'text-white' : 'text-dark-900'}`}>{editMfId ? 'Edit Mutual Fund' : 'New Mutual Fund / SIP'}</h3>
           <form onSubmit={handleAddMF} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Fund Name</label><input value={mfForm.fund_name} onChange={(e) => setMfForm({ ...mfForm, fund_name: e.target.value })} className="input-field" placeholder="e.g. Parag Parikh Flexi Cap" required /></div>
             <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Units Owned</label><input type="number" step="0.001" value={mfForm.units} onChange={(e) => setMfForm({ ...mfForm, units: e.target.value })} className="input-field" required /></div>
             <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Average / Buy NAV (₹)</label><input type="number" step="0.01" value={mfForm.average_nav} onChange={(e) => setMfForm({ ...mfForm, average_nav: e.target.value })} className="input-field" required /></div>
             <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Current NAV (₹)</label><input type="number" step="0.01" value={mfForm.current_nav} onChange={(e) => setMfForm({ ...mfForm, current_nav: e.target.value })} className="input-field" placeholder="Defaults to Buy NAV" /></div>
             <div><label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Active SIP Amount (₹/mo)</label><input type="number" value={mfForm.sip_amount} onChange={(e) => setMfForm({ ...mfForm, sip_amount: e.target.value })} className="input-field" placeholder="0 if one-time" /></div>
-            <div>
-              <label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Pay From (Bank)</label>
-              <select value={mfForm.account_id} onChange={(e) => setMfForm({ ...mfForm, account_id: e.target.value })} className="input-field">
-                <option value="">External / Do not deduct</option>
-                {accounts.filter(a => a.type !== 'credit').map(a => <option key={a.id} value={a.id}>{a.bank_name}</option>)}
-              </select>
-            </div>
+            
+            {!editMfId && (
+              <div>
+                <label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Pay From (Bank)</label>
+                <select value={mfForm.account_id || ''} onChange={(e) => setMfForm({ ...mfForm, account_id: e.target.value })} className="input-field">
+                  <option value="">External / Do not deduct</option>
+                  {accounts.filter(a => a.type !== 'credit').map(a => <option key={a.id} value={a.id}>{a.bank_name}</option>)}
+                </select>
+              </div>
+            )}
+            
             <div>
               <label className={`block text-sm mb-1 ${isDark ? 'text-dark-300' : 'text-dark-700'}`}>Link to Goal</label>
-              <select value={mfForm.linked_goal_id} onChange={(e) => setMfForm({ ...mfForm, linked_goal_id: e.target.value })} className="input-field">
+              <select value={mfForm.linked_goal_id || ''} onChange={(e) => setMfForm({ ...mfForm, linked_goal_id: e.target.value })} className="input-field">
                 <option value="">None</option>
                 {goals.map(g => <option key={g.id} value={g.id}>{g.goal_name || g.name}</option>)}
               </select>
             </div>
-            <div className="flex items-end lg:col-span-4"><button type="submit" className="btn-primary w-full">Save Investment</button></div>
+            <div className={`flex items-end ${editMfId ? 'lg:col-span-1' : 'lg:col-span-4'}`}><button type="submit" className="btn-primary w-full">{editMfId ? 'Save Changes' : 'Save Investment'}</button></div>
           </form>
         </motion.div>
       )}
@@ -191,9 +223,13 @@ export default function Investments() {
           return (
             <motion.div key={mf.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="glass-card p-5 relative overflow-hidden">
               <div className={`absolute top-0 left-0 w-1 h-full ${pl >= 0 ? 'bg-emerald-500' : 'bg-red-500'}`} />
-              <div className="flex justify-between items-start mb-4 pl-2">
+              <div className="flex justify-between items-start mb-4 pl-2 group">
                 <h4 className={`font-bold leading-tight pr-2 ${isDark ? 'text-white' : 'text-dark-900'}`}>{mf.fund_name}</h4>
-                <div className="text-right">
+                <div className="text-right flex-shrink-0">
+                  <div className="flex gap-3 justify-end mb-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => { setEditMfId(mf.id); setMfForm(mf); setShowAddMF(true); window.scrollTo(0,0); }} className="text-xs uppercase font-bold tracking-wider text-blue-500 hover:text-blue-400">Edit</button>
+                    <button onClick={() => { if(confirm('Delete this fund? Historical ledger transactions will remain safely.')) deleteMFMutation.mutate(mf.id); }} className="text-xs uppercase font-bold tracking-wider text-red-500 hover:text-red-400">Delete</button>
+                  </div>
                   <p className={`text-sm font-bold ${pl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{pl >= 0 ? '+' : ''}₹{pl.toLocaleString('en-IN', {maximumFractionDigits:0})}</p>
                   <p className={`text-[10px] ${pl >= 0 ? 'text-emerald-500/80' : 'text-red-500/80'}`}>{pl >= 0 ? '+' : ''}{plPct.toFixed(2)}%</p>
                 </div>

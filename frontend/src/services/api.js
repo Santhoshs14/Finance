@@ -2,7 +2,7 @@ import { db, auth } from '../config/firebase';
 import {
   collection, doc, addDoc, updateDoc, deleteDoc,
   getDocs, getDoc, setDoc, writeBatch, increment,
-  serverTimestamp, query, orderBy, limit, runTransaction,
+  serverTimestamp, query, orderBy, limit, runTransaction, where
 } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 import { getFinancialCycleForDate } from '../utils/financialMonth';
@@ -220,6 +220,7 @@ export const transactionsAPI = {
         notes: data.notes || 'Self Transfer (Outgoing)',
         payment_type: 'Self Transfer',
         _cycleKey: cycle.cycleKey,
+        linked_transfer_id: creditRef.id,
         createdAt: new Date().toISOString()
       });
 
@@ -231,6 +232,7 @@ export const transactionsAPI = {
         notes: data.notes || 'Self Transfer (Incoming)',
         payment_type: 'Self Transfer',
         _cycleKey: cycle.cycleKey,
+        linked_transfer_id: debitRef.id,
         createdAt: new Date().toISOString()
       });
 
@@ -408,66 +410,70 @@ export const transactionsAPI = {
   },
 
   /**
-   * Delete a transaction atomically using runTransaction:
-   * - All reads happen inside the transaction (prevents race conditions)
-   * - Reverse account balance
-   * - Reverse aggregates
+   * Delete a transaction atomically (auto-cleans paired transfers safely).
    */
   delete: async (id, cycleStartDay = 25) => {
     const uid = getUid();
 
+    const txDocRef = doc(db, `users/${uid}/transactions/${id}`);
+    const snapPre = await getDoc(txDocRef);
+    if (!snapPre.exists()) return;
+    const preData = snapPre.data();
+
+    let pairedTxId = preData.linked_transfer_id;
+
+    if (!pairedTxId && preData.payment_type === 'Self Transfer') {
+      const q = query(collection(db, `users/${uid}/transactions`), where('date', '==', preData.date), where('payment_type', '==', 'Self Transfer'));
+      const possiblePairs = await getDocs(q);
+      const pair = possiblePairs.docs.find(d => d.id !== id && parseFloat(d.data().amount) === -parseFloat(preData.amount));
+      if (pair) pairedTxId = pair.id;
+    }
+
     await runTransaction(db, async (transaction) => {
-      const txDocRef = doc(db, `users/${uid}/transactions/${id}`);
-      const snap = await transaction.get(txDocRef);
-      if (!snap.exists()) {
-        // Already deleted, nothing to reverse
-        return;
-      }
+      const reverseAndDelete = async (txId) => {
+        const tRef = doc(db, `users/${uid}/transactions/${txId}`);
+        const snap = await transaction.get(tRef);
+        if (!snap.exists()) return;
 
-      const txData = snap.data();
-      const amount = parseFloat(txData.amount || 0);
-      const cycleKey = txData._cycleKey || getFinancialCycleForDate(txData.date, cycleStartDay).cycleKey;
+        const txData = snap.data();
+        const amount = parseFloat(txData.amount || 0);
+        const cycleKey = txData._cycleKey || getFinancialCycleForDate(txData.date, cycleStartDay).cycleKey;
 
-      // Read account type BEFORE deletes/updates
-      let accType = 'bank';
-      let accExists = false;
-      if (txData.account_id && amount !== 0) {
-        const accRef = doc(db, `users/${uid}/accounts/${txData.account_id}`);
-        const accSnap = await transaction.get(accRef);
-        if (accSnap.exists()) {
-          accExists = true;
-          accType = accSnap.data().type;
+        let accType = 'bank';
+        let accExists = false;
+        if (txData.account_id && amount !== 0) {
+          const accRef = doc(db, `users/${uid}/accounts/${txData.account_id}`);
+          const accSnap = await transaction.get(accRef);
+          if (accSnap.exists()) {
+            accExists = true;
+            accType = accSnap.data().type;
+          }
         }
-      }
 
-      // 1. Delete transaction
-      transaction.delete(txDocRef);
+        transaction.delete(tRef);
 
-      // 2. Reverse account balance/liability
-      if (txData.account_id && amount !== 0 && accExists) {
-        const accRef = doc(db, `users/${uid}/accounts/${txData.account_id}`);
-        if (accType === 'credit') {
-          transaction.update(accRef, { liability: increment(Math.round(amount * 100) / 100) });
-        } else {
-          transaction.update(accRef, { balance: increment(Math.round(-amount * 100) / 100) });
+        if (txData.account_id && amount !== 0 && accExists) {
+          const accRef = doc(db, `users/${uid}/accounts/${txData.account_id}`);
+          if (accType === 'credit') transaction.update(accRef, { liability: increment(Math.round(amount * 100) / 100) });
+          else transaction.update(accRef, { balance: increment(Math.round(-amount * 100) / 100) });
         }
-      }
 
-      // 3. Reverse aggregates
-      const aggRef = doc(db, `users/${uid}/aggregates/${cycleKey}`);
-      const aggUpd = { updatedAt: new Date().toISOString() };
-      if (amount > 0) {
-        aggUpd.totalIncome = increment(-amount);
-      } else if (amount < 0) {
-        aggUpd.totalSpent = increment(-Math.abs(amount));
-      }
-      // Only reverse categoryBreakdown for expenses (not income)
-      if (txData.category && amount < 0) {
-        aggUpd.categoryBreakdown = {
-          [txData.category]: increment(-Math.abs(amount))
-        };
-      }
-      transaction.set(aggRef, aggUpd, { merge: true });
+        const isTransferType = txData.payment_type === 'Self Transfer' || txData.category === 'Transfer' || txData.payment_type === 'Transfer' || txData.category === 'Credit Card Payment';
+        if (!isTransferType) {
+          const aggRef = doc(db, `users/${uid}/aggregates/${cycleKey}`);
+          const aggUpd = { updatedAt: new Date().toISOString() };
+          if (amount > 0) aggUpd.totalIncome = increment(-amount);
+          else if (amount < 0) aggUpd.totalSpent = increment(-Math.abs(amount));
+          
+          if (txData.category && amount < 0) {
+            aggUpd.categoryBreakdown = { [txData.category]: increment(-Math.abs(amount)) };
+          }
+          transaction.set(aggRef, aggUpd, { merge: true });
+        }
+      };
+
+      await reverseAndDelete(id);
+      if (pairedTxId) await reverseAndDelete(pairedTxId);
     });
   },
 
@@ -748,6 +754,8 @@ export const investmentsAPI = {
 
 export const mutualFundsAPI = {
   create: async (data) => await addDoc(getUserRef('mutualFunds'), data),
+  update: async (id, data) => await updateDoc(getDocRef('mutualFunds', id), data),
+  delete: async (id) => await deleteDoc(getDocRef('mutualFunds', id)),
 };
 
 /* ─────────────────────────────────────────────

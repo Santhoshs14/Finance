@@ -91,7 +91,13 @@ export const DataProvider = ({ children }) => {
     );
     unsubscribes.push(
       onSnapshot(txQuery, (snap) => {
-        setTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        fetched.sort((a, b) => {
+          const dateCmp = b.date.localeCompare(a.date);
+          if (dateCmp !== 0) return dateCmp;
+          return (b.createdAt || '').localeCompare(a.createdAt || '');
+        });
+        setTransactions(fetched);
       })
     );
 

@@ -121,7 +121,11 @@ export default function Transactions() {
   /* ─── Daily grouping ─── */
   const grouped = useMemo(() => {
     const map = {};
-    [...transactions].sort((a, b) => b.date.localeCompare(a.date)).forEach(t => {
+    [...transactions].sort((a, b) => {
+      const dateCmp = b.date.localeCompare(a.date);
+      if (dateCmp !== 0) return dateCmp;
+      return (b.createdAt || '').localeCompare(a.createdAt || '');
+    }).forEach(t => {
       if (!map[t.date]) map[t.date] = [];
       map[t.date].push(t);
     });

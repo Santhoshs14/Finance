@@ -29,7 +29,12 @@ const resolveCatColor = (categoryName, categories = []) => {
   return found?.color || FALLBACK_COLORS[categoryName] || '#94a3b8';
 };
 
-export default function TransactionTable({ transactions, onEdit, onDelete, categories = [] }) {
+export default function TransactionTable({ transactions, onEdit, onDelete, categories = [], accounts = [], creditCards = [] }) {
+  const allAccounts = [...accounts, ...creditCards];
+  const resolveAccount = (accountId) => {
+    if (!accountId) return null;
+    return allAccounts.find(a => a.id === accountId) || null;
+  };
   const { isDark } = useTheme();
 
   if (!transactions?.length) {
@@ -49,6 +54,7 @@ export default function TransactionTable({ transactions, onEdit, onDelete, categ
             <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider">Date</th>
             <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider">Category</th>
             <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider">Payment</th>
+            <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider">Account</th>
             <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider">Notes</th>
             <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider">Amount</th>
             <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider">Actions</th>
@@ -60,6 +66,8 @@ export default function TransactionTable({ transactions, onEdit, onDelete, categ
             const isTransfer = txn.payment_type === 'Self Transfer' || txn.category === 'Transfer';
             const amountColor = isTransfer ? 'text-blue-500' : (txn.amount < 0 ? 'text-red-500' : 'text-emerald-500');
             const sign = isTransfer ? (txn.amount < 0 ? '↗ ' : '↘ ') : (txn.amount < 0 ? '-' : '+');
+            const linkedAccount = resolveAccount(txn.account_id);
+            const isCreditCard = linkedAccount && creditCards.some(c => c.id === linkedAccount.id);
             
             return (
               <motion.tr
@@ -95,6 +103,19 @@ export default function TransactionTable({ transactions, onEdit, onDelete, categ
                   {txn.payment_type ? (
                     <span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap ${paymentColors[txn.payment_type] || 'bg-gray-500/15 text-gray-600'}`}>
                       {paymentIcons[txn.payment_type] || '💰'} {txn.payment_type}
+                    </span>
+                  ) : (
+                    <span className={`text-xs ${isDark ? 'text-dark-600' : 'text-dark-300'}`}>—</span>
+                  )}
+                </td>
+                <td className="py-3 px-4">
+                  {linkedAccount ? (
+                    <span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap ${
+                      isCreditCard
+                        ? 'bg-purple-500/15 text-purple-600'
+                        : 'bg-cyan-500/15 text-cyan-600'
+                    }`}>
+                      {isCreditCard ? '💳' : '🏦'} {linkedAccount.account_name}
                     </span>
                   ) : (
                     <span className={`text-xs ${isDark ? 'text-dark-600' : 'text-dark-300'}`}>—</span>

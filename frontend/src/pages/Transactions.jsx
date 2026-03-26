@@ -273,7 +273,7 @@ export default function Transactions() {
                       {daySpent > 0 && <span style={{ color: '#ef4444', fontWeight: 600 }}>-{fmt(daySpent)}</span>}
                     </div>
                   </div>
-                  <TransactionTable transactions={dayTxns} onEdit={handleEdit} onDelete={handleDelete} categories={categories} />
+                  <TransactionTable transactions={dayTxns} onEdit={handleEdit} onDelete={handleDelete} categories={categories} accounts={accounts} creditCards={creditCards} />
                 </div>
               );
             })}

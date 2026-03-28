@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useData } from '../context/DataContext';
 import { useTheme } from '../context/ThemeContext';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { 
   BanknotesIcon, CreditCardIcon, PlusIcon, 
   ArrowTrendingUpIcon, ArrowTrendingDownIcon, 
@@ -17,7 +16,7 @@ import { transactionsAPI } from '../services/api';
 
 import { fmt } from '../utils/format';
 
-import CustomTooltip from '../components/CustomTooltip';
+
 
 export default function Accounts() {
   const { isDark } = useTheme();
@@ -50,49 +49,43 @@ export default function Accounts() {
 
   // Derived Statistics for Selected Account
   const accountStats = useMemo(() => {
-    if (!selectedAccount) return { income: 0, expense: 0, recentTxns: [], chartData: [] };
+    if (!selectedAccount) return { income: 0, expense: 0, recentTxns: [], avgTxn: 0, biggestExpense: null, topCategory: null };
 
     const isCreditCard = selectedAccount.type === 'credit';
     const txns = transactions.filter(t => t.account_id === selectedAccount.id);
 
     let income = 0;
     let expense = 0;
-    let ccOutstanding = 0;
 
     txns.forEach(t => {
       if (t.amount > 0) income += t.amount;
-      else {
-        expense += Math.abs(t.amount);
-        if (isCreditCard) ccOutstanding += Math.abs(t.amount);
-      }
+      else expense += Math.abs(t.amount);
     });
 
-    // Chart Data (Last 30 days cumulative effect) - very basic mock for now
-    let runningBalance = isCreditCard ? (selectedAccount.liability || 0) : (selectedAccount.balance || 0);
-    const chartData = txns.slice(0, 30).reverse().map(t => {
-      // Step backwards to render history appropriately based on account type
-      if (!isCreditCard) {
-        runningBalance = runningBalance - t.amount; 
-      } else {
-        runningBalance = runningBalance + t.amount; // reversing an expense (-X) on liability means subtracting X, wait mathematically: we step backwards: earlier liability = current liability + amount (if expense is negative).
-      }
-      return {
-        date: new Date(t.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        value: Math.max(0, runningBalance)
-      };
-    }).reverse();
+    // Avg transaction size (absolute)
+    const avgTxn = txns.length > 0 ? txns.reduce((s, t) => s + Math.abs(t.amount), 0) / txns.length : 0;
 
-    if (chartData.length === 0) {
-      chartData.push({ date: 'Now', value: isCreditCard ? (selectedAccount.liability || 0) : (selectedAccount.balance || 0) });
-    }
+    // Biggest single debit
+    const debits = txns.filter(t => t.amount < 0);
+    const biggestExpense = debits.length > 0
+      ? debits.reduce((max, t) => Math.abs(t.amount) > Math.abs(max.amount) ? t : max, debits[0])
+      : null;
 
-    return { income, expense, recentTxns: txns.slice(0, 10), chartData, ccOutstanding: selectedAccount.liability || 0 };
+    // Most active category
+    const catCount = {};
+    txns.forEach(t => {
+      const cat = t.category || 'Other';
+      catCount[cat] = (catCount[cat] || 0) + 1;
+    });
+    const topCategoryEntry = Object.entries(catCount).sort((a, b) => b[1] - a[1])[0];
+    const topCategory = topCategoryEntry ? { name: topCategoryEntry[0], count: topCategoryEntry[1] } : null;
+
+    return { income, expense, recentTxns: txns.slice(0, 10), avgTxn, biggestExpense, topCategory, ccOutstanding: selectedAccount.liability || 0 };
   }, [selectedAccount, transactions]);
 
   const textMain = isDark ? '#f3f4f6' : '#111827';
   const textSub = isDark ? '#9ca3af' : '#6b7280';
   const border = isDark ? '#374151' : '#e5e7eb';
-  const cardBg = isDark ? 'rgba(31, 41, 55, 0.4)' : '#ffffff';
 
   const renderAccountBtn = (acc, isCard) => {
     const isSelected = selectedAccountId === acc.id;
@@ -243,29 +236,28 @@ export default function Accounts() {
                 </div>
               </div>
 
-              {/* Chart */}
+              {/* Account Analytics */}
               <div className="glass-card" style={{ padding: 24 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                  <div>
-                    <h3 style={{ fontSize: 16, fontWeight: 600, color: textMain, margin: '0 0 4px 0' }}>Activity Timeline</h3>
-                    <p style={{ fontSize: 12, color: textSub, margin: 0 }}>Recent {selectedAccount.type === 'credit' ? 'liability' : 'balance'} fluctuations</p>
+                <h3 style={{ fontSize: 16, fontWeight: 600, color: textMain, margin: '0 0 20px 0' }}>Account Analytics</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Avg Transaction */}
+                  <div style={{ padding: '16px', borderRadius: 14, background: isDark ? 'rgba(99,102,241,0.08)' : '#f0f0ff', border: `1px solid ${isDark ? 'rgba(99,102,241,0.2)' : '#e0e0ff'}` }}>
+                    <p style={{ margin: '0 0 6px 0', fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Avg Transaction</p>
+                    <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: textMain }}>{fmt(accountStats.avgTxn)}</p>
+                    <p style={{ margin: '4px 0 0', fontSize: 12, color: textSub }}>across {transactions.filter(t => t.account_id === selectedAccount.id).length} transactions</p>
                   </div>
-                </div>
-                <div className="h-[250px] sm:h-[300px] w-full">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                    <AreaChart data={accountStats.chartData}>
-                      <defs>
-                        <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={selectedAccount.type === 'credit' ? '#f59e0b' : '#3b82f6'} stopOpacity={0.3} />
-                          <stop offset="95%" stopColor={selectedAccount.type === 'credit' ? '#f59e0b' : '#3b82f6'} stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: textSub, fontSize: 11 }} />
-                      <YAxis axisLine={false} tickLine={false} tick={{ fill: textSub, fontSize: 11 }} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} width={45} />
-                      <Tooltip content={<CustomTooltip isDark={isDark} />} />
-                      <Area type="monotone" dataKey="value" stroke={selectedAccount.type === 'credit' ? '#f59e0b' : '#3b82f6'} strokeWidth={3} fillOpacity={1} fill="url(#colorVal)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                  {/* Biggest Expense */}
+                  <div style={{ padding: '16px', borderRadius: 14, background: isDark ? 'rgba(239,68,68,0.08)' : '#fff5f5', border: `1px solid ${isDark ? 'rgba(239,68,68,0.2)' : '#fecaca'}` }}>
+                    <p style={{ margin: '0 0 6px 0', fontSize: 11, fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Biggest Spend</p>
+                    <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: textMain }}>{accountStats.biggestExpense ? fmt(Math.abs(accountStats.biggestExpense.amount)) : '—'}</p>
+                    <p style={{ margin: '4px 0 0', fontSize: 12, color: textSub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{accountStats.biggestExpense ? `${accountStats.biggestExpense.category} · ${accountStats.biggestExpense.date}` : 'No debits yet'}</p>
+                  </div>
+                  {/* Most Active Category */}
+                  <div style={{ padding: '16px', borderRadius: 14, background: isDark ? 'rgba(16,185,129,0.08)' : '#f0fdf4', border: `1px solid ${isDark ? 'rgba(16,185,129,0.2)' : '#bbf7d0'}` }}>
+                    <p style={{ margin: '0 0 6px 0', fontSize: 11, fontWeight: 700, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Top Category</p>
+                    <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: textMain }}>{accountStats.topCategory?.name || '—'}</p>
+                    <p style={{ margin: '4px 0 0', fontSize: 12, color: textSub }}>{accountStats.topCategory ? `${accountStats.topCategory.count} transactions` : 'No data'}</p>
+                  </div>
                 </div>
               </div>
 

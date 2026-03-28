@@ -126,11 +126,44 @@ export default function Investments() {
 
   const updateNavMutation = useMutation({
     mutationFn: async ({ id, current_nav }) => {
-      await updateDoc(doc(db, `users/${currentUser.uid}/mutualFunds/${id}`), { current_nav });
+      const mf = mutualFunds.find(m => m.id === id);
+      if (!mf) return;
+      
+      const newContribution = parseFloat((current_nav * mf.units).toFixed(2));
+      
+      // Update the fund with new nav AND store the exact contribution amount for this goal
+      await updateDoc(doc(db, `users/${currentUser.uid}/mutualFunds/${id}`), { 
+        current_nav,
+        fund_contribution: newContribution  // Track exactly what this fund contributes to its goal
+      });
+
+      // Sync goal: recalculate from all funds linked to this goal
+      if (mf?.linked_goal_id) {
+        const goal = goals.find(g => g.id === mf.linked_goal_id);
+        if (goal) {
+          // Sum contributions from all OTHER funds linked to the same goal
+          const otherFundsSum = mutualFunds
+            .filter(f => f.id !== id && f.linked_goal_id === mf.linked_goal_id)
+            .reduce((sum, f) => {
+              // Use stored fund_contribution if available, else compute from current/avg nav
+              const contrib = f.fund_contribution ?? ((f.current_nav || f.average_nav) * f.units);
+              return sum + contrib;
+            }, 0);
+
+          // goal.current_amount may include manual deposits unrelated to this fund.
+          // We track the fund's OLD contribution to remove it cleanly.
+          const oldContribution = mf.fund_contribution ?? ((mf.current_nav || mf.average_nav) * mf.units);
+          const manualDeposits = Math.max(0, (goal.current_amount || 0) - oldContribution - otherFundsSum);
+          
+          const updatedGoalAmount = parseFloat((manualDeposits + otherFundsSum + newContribution).toFixed(2));
+          await goalsAPI.update(goal.id, { current_amount: updatedGoalAmount });
+        }
+      }
     },
-    onSuccess: () => { toast.success('NAV updated!'); setEditingNavId(null); },
-    onError: () => toast.error('Failed to update NAV')
+    onSuccess: () => { toast.success('NAV updated! Goal synced.'); setEditingNavId(null); },
+    onError: (e) => { console.error(e); toast.error('Failed to update NAV'); }
   });
+
 
   const handleAddMF = (e) => { 
     e.preventDefault(); 

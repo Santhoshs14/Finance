@@ -272,7 +272,9 @@ export default function Budgets() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) setCardOrder(JSON.parse(saved));
-    } catch {}
+    } catch {
+      // Ignore parse errors from localStorage and fallback to default order
+    }
   }, [currentUser, STORAGE_KEY]);
 
   // Persist order whenever it changes

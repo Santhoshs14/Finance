@@ -24,15 +24,23 @@ export default function Goals() {
 
   const { currentUser } = useAuth();
   const [goals, setGoals] = useState([]);
+  const [mutualFunds, setMutualFunds] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!currentUser) return;
-    const unsub = onSnapshot(collection(db, `users/${currentUser.uid}/goals`), (snap) => {
+    let goalsLoaded = false, fundsLoaded = false;
+    const checkLoading = () => { if (goalsLoaded && fundsLoaded) setLoading(false); };
+
+    const unsubGoals = onSnapshot(collection(db, `users/${currentUser.uid}/goals`), (snap) => {
       setGoals(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
+      goalsLoaded = true; checkLoading();
     });
-    return () => unsub();
+    const unsubFunds = onSnapshot(collection(db, `users/${currentUser.uid}/mutualFunds`), (snap) => {
+      setMutualFunds(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      fundsLoaded = true; checkLoading();
+    });
+    return () => { unsubGoals(); unsubFunds(); };
   }, [currentUser]);
   const addMutation = useMutation({
     mutationFn: (data) => goalsAPI.create(data),
@@ -86,7 +94,27 @@ export default function Goals() {
     updateMutation.mutate({ id: selectedGoal.id, data: { current_amount: newTarget } });
   };
 
-  const goalsWithActions = goals.map(g => ({
+  // Compute live goal amounts: for goals linked to mutual funds, derive current_amount
+  // from live fund data so it's always accurate regardless of stored value.
+  const liveGoals = goals.map(g => {
+    const linkedFunds = mutualFunds.filter(f => f.linked_goal_id === g.id);
+    if (linkedFunds.length === 0) return g; // no linked funds, use stored value as-is
+
+    const fundsMarketValue = linkedFunds.reduce((sum, f) => {
+      return sum + (f.current_nav || f.average_nav) * f.units;
+    }, 0);
+
+    // Estimate manual deposits: stored amount minus the sum of what funds contributed
+    // Use fund_contribution field if stored, else fall back to average_nav * units (invested amount)
+    const oldFundContribution = linkedFunds.reduce((sum, f) => {
+      return sum + (f.fund_contribution ?? ((f.current_nav || f.average_nav) * f.units));
+    }, 0);
+    const manualDeposits = Math.max(0, (g.current_amount || 0) - oldFundContribution);
+
+    return { ...g, current_amount: parseFloat((manualDeposits + fundsMarketValue).toFixed(2)) };
+  });
+
+  const goalsWithActions = liveGoals.map(g => ({
     ...g,
     onAddFunds: (goal) => { setSelectedGoal(goal); setShowAddFunds(true); setAddFundsAmount(''); },
     onEdit: (goal) => { setSelectedGoal(goal); setForm({ goal_name: goal.goal_name || goal.name, target_amount: goal.target_amount, current_amount: goal.current_amount, deadline: goal.deadline || '' }); setShowEdit(true); }

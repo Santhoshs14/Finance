@@ -13,7 +13,7 @@ import { fmt } from '../utils/format';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
-const CC_BUDGET_CATEGORY_KEY = '__cc_spending_budget__';
+const CC_BUDGET_CATEGORY_KEY = 'cc-spending-budget';
 
 export default function CreditCards() {
   const { isDark } = useTheme();

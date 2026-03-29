@@ -334,7 +334,7 @@ export default function Budgets() {
           const limitMap = {};
           if (data) {
             Object.entries(data).forEach(([catId, doc]) => {
-              if (catId === '__cc_spending_budget__') return; // skip CC budget key
+              if (catId === 'cc-spending-budget') return; // skip CC budget key
               limitMap[catId] = typeof doc === 'object' ? (doc.limit ?? 0) : doc;
             });
           }

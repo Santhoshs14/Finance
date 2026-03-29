@@ -1,29 +1,37 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
-import { accountsAPI, creditCardsAPI } from '../services/api';
+import { accountsAPI, creditCardsAPI, budgetSnapshotsAPI } from '../services/api';
 import ChartCard from '../components/ChartCard';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { PlusIcon, CreditCardIcon, BanknotesIcon, PencilSquareIcon, CheckBadgeIcon } from '@heroicons/react/24/outline';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { PlusIcon, CreditCardIcon, BanknotesIcon, PencilSquareIcon, CheckBadgeIcon, ShieldCheckIcon, ExclamationTriangleIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { getFinancialCycle, formatShortDate } from '../utils/financialMonth';
+import { fmt } from '../utils/format';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
+const CC_BUDGET_CATEGORY_KEY = '__cc_spending_budget__';
 
 export default function CreditCards() {
   const { isDark } = useTheme();
   const queryClient = useQueryClient();
   const { accounts, creditCards, transactions, cycleStartDay } = useData();
   const bankAccounts = useMemo(() => accounts.filter(a => a.type !== 'credit'), [accounts]);
-  
+
   const [showAddCard, setShowAddCard] = useState(false);
   const [showPayBill, setShowPayBill] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState(null);
   const [cardForm, setCardForm] = useState({ account_name: '', credit_limit: '', billing_cycle_start_day: 1, due_days_after: 20, shared_limit_with: '' });
   const [payForm, setPayForm] = useState({ account_id: '', amount: '', date: new Date().toISOString().split('T')[0] });
   const [isEditMode, setIsEditMode] = useState(false);
+
+  // ── CC Spending Budget state ──
+  const [ccBudgetLimit, setCcBudgetLimit] = useState(0);
+  const [ccBudgetEditing, setCcBudgetEditing] = useState(false);
+  const [ccBudgetInput, setCcBudgetInput] = useState('');
 
   // Derive cc transactions
   const ccTxns = useMemo(() => transactions.filter(t => t.payment_type === 'Credit Card' || creditCards.some(c => c.id === t.account_id)), [transactions, creditCards]);
@@ -116,6 +124,48 @@ export default function CreditCards() {
     setIsEditMode(true);
     setShowAddCard(true);
   };
+
+  // ── CC Budget: derive cycle key from active card's billing cycle ──
+  const activeCycleCycleKey = useMemo(() => {
+    const today = new Date();
+    const cardCycleDay = activeCard ? parseInt(activeCard.billing_cycle_start_day) || 1 : cycleStartDay;
+    return getFinancialCycle(today, cardCycleDay).cycleKey;
+  }, [activeCard, cycleStartDay]);
+
+  // Load CC budget limit for current cycle
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await budgetSnapshotsAPI.get(activeCycleCycleKey);
+        if (!cancelled && data && data[CC_BUDGET_CATEGORY_KEY]) {
+          const limitVal = typeof data[CC_BUDGET_CATEGORY_KEY] === 'object'
+            ? (data[CC_BUDGET_CATEGORY_KEY].limit ?? 0)
+            : data[CC_BUDGET_CATEGORY_KEY];
+          setCcBudgetLimit(limitVal);
+        } else if (!cancelled) {
+          setCcBudgetLimit(0);
+        }
+      } catch (e) {
+        console.error('Failed to load CC budget:', e);
+      }
+    };
+    if (activeCycleCycleKey) load();
+    return () => { cancelled = true; };
+  }, [activeCycleCycleKey]);
+
+  const handleSaveCcBudget = useCallback(async () => {
+    const v = parseFloat(ccBudgetInput);
+    if (isNaN(v) || v < 0) { toast.error('Enter a valid amount'); return; }
+    setCcBudgetLimit(v);
+    setCcBudgetEditing(false);
+    try {
+      await budgetSnapshotsAPI.setLimit(activeCycleCycleKey, CC_BUDGET_CATEGORY_KEY, v);
+      toast.success('CC spending budget saved!');
+    } catch {
+      toast.error('Failed to save CC budget');
+    }
+  }, [ccBudgetInput, activeCycleCycleKey]);
 
   // Metrics for active card
   const activeTxns = useMemo(() => ccTxns.filter(t => t.account_id === activeCardId), [ccTxns, activeCardId]);
@@ -368,7 +418,134 @@ export default function CreditCards() {
             </div>
           )}
 
+          {/* CC SPENDING BUDGET SECTION */}
+          {metrics && (() => {
+            const cycleSpend = metrics.cycleSpend;
+            const hasLimit = ccBudgetLimit > 0;
+            const pct = hasLimit ? (cycleSpend / ccBudgetLimit) * 100 : 0;
+            const cappedPct = Math.min(pct, 100);
+            const remaining = hasLimit ? Math.max(0, ccBudgetLimit - cycleSpend) : 0;
+            const budgetStatus = pct > 100
+              ? { label: 'Over Budget', color: '#ef4444', bg: 'rgba(239,68,68,0.10)' }
+              : pct >= 80
+              ? { label: 'Warning', color: '#f59e0b', bg: 'rgba(245,158,11,0.10)' }
+              : { label: 'Safe', color: '#1abf94', bg: 'rgba(26,191,148,0.08)' };
+
+            return (
+              <div className={`rounded-3xl p-6 border shadow-sm ${isDark ? 'bg-dark-800 border-dark-700' : 'bg-white border-dark-100'}`}>
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <div style={{ width: 40, height: 40, borderRadius: 12, background: 'linear-gradient(135deg, #6366f1, #4338ca)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <BanknotesIcon className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-dark-900'}`}>
+                        CC Spending Budget
+                      </h3>
+                      <p className={`text-xs ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                        {formatShortDate(metrics.cycle.startDate)} — {formatShortDate(metrics.cycle.endDate)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {hasLimit && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 99, background: budgetStatus.bg, border: `1px solid ${budgetStatus.color}44` }}>
+                        {pct > 100 ? <ExclamationTriangleIcon className="w-3 h-3" style={{ color: budgetStatus.color }} /> : <ShieldCheckIcon className="w-3 h-3" style={{ color: budgetStatus.color }} />}
+                        <span style={{ fontSize: 11, fontWeight: 700, color: budgetStatus.color }}>{budgetStatus.label}</span>
+                      </div>
+                    )}
+                    {ccBudgetEditing ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: '#6366f1' }}>₹</span>
+                        <input
+                          type="number" step="0.01" min="0"
+                          value={ccBudgetInput}
+                          onChange={e => setCcBudgetInput(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') handleSaveCcBudget(); if (e.key === 'Escape') setCcBudgetEditing(false); }}
+                          autoFocus
+                          className="input-field"
+                          style={{ width: 110, fontSize: 14, fontWeight: 700, padding: '5px 10px' }}
+                          placeholder="0.00"
+                        />
+                        <button onClick={handleSaveCcBudget} style={{ border: 'none', background: '#1abf94', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <CheckIcon className="w-4 h-4 text-white" />
+                        </button>
+                        <button onClick={() => setCcBudgetEditing(false)} style={{ border: 'none', background: isDark ? '#374151' : '#e5e7eb', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <XMarkIcon className={`w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-600'}`} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => { setCcBudgetInput(ccBudgetLimit > 0 ? String(ccBudgetLimit) : ''); setCcBudgetEditing(true); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 10, background: isDark ? '#1a2235' : '#eff6ff', border: `1px solid ${isDark ? '#252f3e' : '#bfdbfe'}`, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: isDark ? '#93c5fd' : '#1e40af', fontFamily: 'inherit' }}
+                      >
+                        <PencilSquareIcon className="w-3.5 h-3.5" />
+                        {hasLimit ? fmt(ccBudgetLimit) : 'Set Limit'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Stats row */}
+                <div className={`grid gap-3 mb-4`} style={{ gridTemplateColumns: hasLimit ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)' }}>
+                  {[
+                    { label: 'Spent (CC)', val: fmt(cycleSpend), color: '#ef4444' },
+                    ...(hasLimit ? [
+                      { label: 'Remaining', val: fmt(remaining), color: remaining === 0 ? '#ef4444' : '#1abf94' },
+                      { label: 'Used', val: `${pct.toFixed(0)}%`, color: budgetStatus.color },
+                    ] : [
+                      { label: 'Paid Back', val: fmt(metrics.cyclePaid), color: '#1abf94' },
+                    ]),
+                  ].map(s => (
+                    <div key={s.label} style={{ textAlign: 'center', padding: '10px 6px', background: isDark ? '#0a0e14' : '#f9fafb', borderRadius: 10 }}>
+                      <p style={{ margin: 0, fontSize: 15, fontWeight: 800, color: s.color }}>{s.val}</p>
+                      <p style={{ margin: '3px 0 0', fontSize: 10, color: isDark ? '#9ca3af' : '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Progress bar (only if limit is set) */}
+                {hasLimit && (
+                  <div>
+                    <div style={{ height: 8, borderRadius: 99, background: isDark ? '#1a2235' : '#f3f4f6', overflow: 'hidden', marginBottom: 4 }}>
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${cappedPct}%` }}
+                        transition={{ duration: 0.8, ease: 'easeOut' }}
+                        style={{ height: '100%', borderRadius: 99, background: pct > 100 ? '#ef4444' : pct >= 80 ? '#f59e0b' : '#1abf94' }}
+                      />
+                    </div>
+                    <div className="flex justify-between" style={{ fontSize: 10, color: isDark ? '#9ca3af' : '#6b7280' }}>
+                      <span>{cappedPct.toFixed(0)}% used</span>
+                      <span>Limit: {fmt(ccBudgetLimit)}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Category breakdown pills for CC spending */}
+                {categoryData.length > 0 && (
+                  <div style={{ marginTop: 14, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {categoryData.slice(0, 6).map((cat, i) => (
+                      <div key={cat.name} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 20, background: isDark ? '#161b22' : '#f3f4f6', border: `1px solid ${isDark ? '#30363d' : '#e5e7eb'}` }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: COLORS[i % COLORS.length], flexShrink: 0 }} />
+                        <span style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#d1d5db' : '#374151' }}>{cat.name}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: isDark ? '#f3f4f6' : '#111827' }}>₹{cat.value.toLocaleString('en-IN')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!hasLimit && (
+                  <p style={{ fontSize: 12, color: isDark ? '#9ca3af' : '#6b7280', marginTop: 8 }}>
+                    Set a spending limit to track your credit card budget against a cap.
+                  </p>
+                )}
+              </div>
+            );
+          })()}
+
           {/* RECENT TRANSACTIONS */}
+
           <div className={`rounded-3xl border shadow-sm overflow-hidden ${isDark ? 'bg-dark-800 border-dark-700' : 'bg-white border-dark-100'}`}>
             <div className={`px-6 py-5 border-b ${isDark ? 'border-dark-700' : 'border-dark-100'} flex justify-between items-center`}>
               <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-dark-900'}`}>Recent Transactions</h3>

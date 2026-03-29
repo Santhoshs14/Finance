@@ -247,7 +247,7 @@ function BudgetCard({ cat, limit, spent = 0, salary, isDark, onSave, cycleInfo }
 /* ─── Main Budgets Page ─── */
 export default function Budgets() {
   const { isDark } = useTheme();
-  const { categories, currentAggregate, cycleStartDay, monthlySalary } = useData();
+  const { categories, transactions, cycleStartDay, monthlySalary } = useData();
   const { currentUser } = useAuth();
 
   const cycle = useMemo(() => getFinancialCycle(new Date(), cycleStartDay), [cycleStartDay]);
@@ -330,9 +330,11 @@ export default function Budgets() {
         }
         if (!cancelled) {
           // Convert subcollection format { [catId]: { limit } } to { [catId]: number }
+          // Exclude the special CC spending budget key — it's not a category
           const limitMap = {};
           if (data) {
             Object.entries(data).forEach(([catId, doc]) => {
+              if (catId === '__cc_spending_budget__') return; // skip CC budget key
               limitMap[catId] = typeof doc === 'object' ? (doc.limit ?? 0) : doc;
             });
           }
@@ -385,10 +387,30 @@ export default function Budgets() {
     categories.filter(c => c.name !== 'Income' && c.name !== 'Transfer' && c.name !== 'Credit Card Payment'), [categories]
   );
 
-  // Spend map directly from real-time aggregates
+  // Spend map computed from non-CC transactions only, filtered to current cycle
+  // Credit card transactions (payment_type === 'Credit Card') are excluded from category budgets
   const spendMap = useMemo(() => {
-    return currentAggregate?.categoryBreakdown || {};
-  }, [currentAggregate]);
+    const map = {};
+    transactions.forEach(t => {
+      // Skip CC transactions — they belong to the CC budget, not category budgets
+      if (t.payment_type === 'Credit Card') return;
+      // Skip transfers and CC payments
+      if (
+        t.payment_type === 'Self Transfer' ||
+        t.payment_type === 'Transfer' ||
+        t.category === 'Transfer' ||
+        t.category === 'Credit Card Payment'
+      ) return;
+      // Only count current cycle
+      if (t._cycleKey && t._cycleKey !== cycleKey) return;
+      const amount = parseFloat(t.amount || 0);
+      // Only count expenses (negative amounts)
+      if (amount < 0 && t.category) {
+        map[t.category] = (map[t.category] || 0) + Math.abs(amount);
+      }
+    });
+    return map;
+  }, [transactions, cycleKey]);
 
   const enriched = useMemo(() => {
     const base = spendingCategories.map(cat => ({

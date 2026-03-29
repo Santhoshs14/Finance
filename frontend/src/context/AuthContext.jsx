@@ -1,11 +1,11 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
   signOut, 
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
   GoogleAuthProvider
 } from 'firebase/auth';
 import { auth, db } from '../config/firebase';
@@ -18,27 +18,10 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Handle redirect result after Google sign-in redirect
-    getRedirectResult(auth).then(async (result) => {
-      if (result?.user) {
-        const user = result.user;
-        const userDocRef = doc(db, 'users', user.uid);
-        const userDocSnapshot = await getDoc(userDocRef);
-        if (!userDocSnapshot.exists()) {
-          await setDoc(userDocRef, {
-            email: user.email,
-            createdAt: serverTimestamp(),
-          });
-        }
-      }
-    }).catch(console.error);
-
+    // Since we are moving to signInWithPopup, we no longer need getRedirectResult polling here.
+    // The loading state is completely handled by the initial onAuthStateChanged.
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        setCurrentUser(user);
-      } else {
-        setCurrentUser(null);
-      }
+      setCurrentUser(user || null);
       setLoading(false);
     });
 
@@ -64,9 +47,26 @@ export const AuthProvider = ({ children }) => {
 
   const loginWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
-    // Use redirect instead of popup to avoid COOP browser security violations
-    await signInWithRedirect(auth, provider);
-    // Page will redirect to Google and return — result handled in useEffect above
+    provider.setCustomParameters({ prompt: 'select_account' });
+    try {
+      const result = await signInWithPopup(auth, provider);
+      if (result?.user) {
+        const user = result.user;
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDocSnapshot = await getDoc(userDocRef);
+        if (!userDocSnapshot.exists()) {
+          await setDoc(userDocRef, {
+            email: user.email,
+            createdAt: serverTimestamp(),
+          });
+        }
+      }
+      return result;
+    } catch (error) {
+      console.error("Popup Error:", error);
+      toast.error(`Google Popup failed: ${error.message}. Please disable AdBlockers/Extensions and try again.`);
+      throw error;
+    }
   };
 
   const logout = () => {

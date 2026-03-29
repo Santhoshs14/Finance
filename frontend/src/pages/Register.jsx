@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { authAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -15,7 +15,6 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const { registerWithEmail } = useAuth();
   const { isDark } = useTheme();
-  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -29,10 +28,9 @@ export default function Register() {
     setLoading(true);
     try {
       await registerWithEmail(email, password);
-      navigate('/');
+      // Wait for auth context to detect user creation and redirect
     } catch (err) {
       setError(err.message || 'Registration failed');
-    } finally {
       setLoading(false);
     }
   };

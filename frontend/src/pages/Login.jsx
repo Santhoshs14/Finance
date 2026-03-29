@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { authAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -14,7 +14,6 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const { loginWithEmail, loginWithGoogle } = useAuth();
   const { isDark } = useTheme();
-  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -22,10 +21,9 @@ export default function Login() {
     setLoading(true);
     try {
       await loginWithEmail(email, password);
-      navigate('/');
+      // Wait for auth context to update and redirect
     } catch (err) {
       setError(err.message || 'Login failed');
-    } finally {
       setLoading(false);
     }
   };
@@ -34,7 +32,7 @@ export default function Login() {
     setError('');
     try {
       await loginWithGoogle();
-      navigate('/');
+      // Auth context handles redirect
     } catch (err) {
       setError(err.message || 'Google Login failed');
     }

@@ -207,18 +207,32 @@ export default function Dashboard() {
     enabled: !!currentCycle?.cycleKey,
   });
 
-  // Budget progress from currentAggregate
+  // Budget progress — computed directly from non-CC cycle transactions (matches Budgets page logic)
   const budgetUsage = useMemo(() => {
-    const breakdown = currentAggregate?.categoryBreakdown || {};
-    return Object.entries(breakdown)
-      .filter(([cat]) => cat !== 'Income' && cat !== 'Transfer' && cat !== 'Credit Card Payment')
+    const map = {};
+    cycleTxns.forEach(t => {
+      // Skip credit card payment-type transactions (same rule as Budgets page spendMap)
+      if (t.payment_type === 'Credit Card') return;
+      if (
+        t.payment_type === 'Self Transfer' ||
+        t.payment_type === 'Transfer' ||
+        t.category === 'Transfer' ||
+        t.category === 'Credit Card Payment' ||
+        t.category === 'Income'
+      ) return;
+      const amount = parseFloat(t.amount || 0);
+      if (amount < 0 && t.category) {
+        map[t.category] = (map[t.category] || 0) + Math.abs(amount);
+      }
+    });
+    return Object.entries(map)
       .map(([cat, spent]) => {
-         const catId = categories.find(c => c.name === cat)?.id;
-         return { category: cat, spent, monthly_limit: catId ? (budgetLimits[catId] || 0) : 0 };
+        const catId = categories.find(c => c.name === cat)?.id;
+        return { category: cat, spent, monthly_limit: catId ? (budgetLimits[catId] || 0) : 0 };
       })
       .sort((a, b) => b.spent - a.spent)
       .slice(0, 5);
-  }, [currentAggregate, budgetLimits, categories]);
+  }, [cycleTxns, budgetLimits, categories]);
 
   // Local insights generated cleanly from aggregates and context
   const insights = useMemo(() => {
@@ -232,7 +246,9 @@ export default function Dashboard() {
   /* ─── Chart data ─── */
   const categoryData = transactions.reduce((acc, txn) => {
     const isTrans = txn.category === 'Transfer' || txn.payment_type?.includes('Transfer') || txn.category === 'Credit Card Payment';
-    if (txn.category !== 'Income' && txn.amount < 0 && !isTrans) {
+    // Exclude credit card payment-type transactions from category charts
+    const isCCTxn = txn.payment_type === 'Credit Card';
+    if (txn.category !== 'Income' && txn.amount < 0 && !isTrans && !isCCTxn) {
       const ex = acc.find(i => i.name === txn.category);
       const col = categories.find(c => c.name === txn.category)?.color || '#94a3b8';
       if (ex) ex.value += Math.abs(txn.amount);
@@ -242,7 +258,9 @@ export default function Dashboard() {
   }, []).sort((a, b) => b.value - a.value);
 
   const monthlyData = transactions.reduce((acc, txn) => {
-    if (txn.category === 'Transfer' || txn.payment_type?.includes('Transfer') || txn.category === 'Credit Card Payment') return acc;
+    const isTrans = txn.category === 'Transfer' || txn.payment_type?.includes('Transfer') || txn.category === 'Credit Card Payment';
+    const isCCTxn = txn.payment_type === 'Credit Card';
+    if (isTrans || isCCTxn) return acc;
     const key = getShortFinancialMonthLabelForDate(txn.date, cycleStartDay);
     const ex = acc.find(i => i.month === key);
     const amt = Math.abs(txn.amount);

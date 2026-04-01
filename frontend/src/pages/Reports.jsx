@@ -79,14 +79,24 @@ export default function Reports() {
         let totalIncome = 0, totalExpense = 0;
         const categoryBreakdown = {};
         filtered.forEach(t => {
+          // Skip credit card payment-type transactions from all budget/category metrics
+          if (t.payment_type === 'Credit Card') return;
+          // Skip transfers and CC payment settlements
+          if (
+            t.payment_type === 'Self Transfer' ||
+            t.payment_type === 'Transfer' ||
+            t.category === 'Transfer' ||
+            t.category === 'Credit Card Payment'
+          ) return;
           const amt = Math.abs(t.amount);
-          if (t.category === 'Income') totalIncome += amt;
-          else if (t.category !== 'Transfer') totalExpense += amt;
-          // Skip Transfer and Income from category breakdown
-          if (t.category === 'Transfer' || t.category === 'Income') return;
-          if (!categoryBreakdown[t.category]) categoryBreakdown[t.category] = { total: 0, count: 0 };
-          categoryBreakdown[t.category].total += amt;
-          categoryBreakdown[t.category].count += 1;
+          if (t.category === 'Income') { totalIncome += amt; return; }
+          totalExpense += amt;
+          // Category breakdown (expenses only)
+          if (t.amount < 0) {
+            if (!categoryBreakdown[t.category]) categoryBreakdown[t.category] = { total: 0, count: 0 };
+            categoryBreakdown[t.category].total += amt;
+            categoryBreakdown[t.category].count += 1;
+          }
         });
 
         // Fetch previous cycle data for comparison chart
@@ -99,7 +109,16 @@ export default function Reports() {
         // Previous cycle data for vs-last-cycle chart
         const prevCycle = recentCycles[1];
         const prevFiltered = prevCycle
-          ? trendTxns.filter(t => t.date >= prevCycle.startDate && t.date <= prevCycle.endDate && t.amount < 0 && t.category !== 'Transfer' && t.category !== 'Income')
+          ? trendTxns.filter(t =>
+              t.date >= prevCycle.startDate && t.date <= prevCycle.endDate &&
+              t.amount < 0 &&
+              t.payment_type !== 'Credit Card' &&
+              t.payment_type !== 'Self Transfer' &&
+              t.payment_type !== 'Transfer' &&
+              t.category !== 'Transfer' &&
+              t.category !== 'Credit Card Payment' &&
+              t.category !== 'Income'
+            )
           : [];
         const prevCatMap = {};
         prevFiltered.forEach(t => { prevCatMap[t.category] = (prevCatMap[t.category] || 0) + Math.abs(t.amount); });
@@ -136,10 +155,18 @@ export default function Reports() {
         const monthlyBreakdown = {};
         for (let i = 1; i <= 12; i++) monthlyBreakdown[i] = { income: 0, expense: 0, savings: 0 };
         filtered.forEach(t => {
+          // Skip credit card payment-type transactions
+          if (t.payment_type === 'Credit Card') return;
+          if (
+            t.payment_type === 'Self Transfer' ||
+            t.payment_type === 'Transfer' ||
+            t.category === 'Transfer' ||
+            t.category === 'Credit Card Payment'
+          ) return;
           const m = new Date(t.date).getMonth() + 1;
           const amt = Math.abs(t.amount);
           if (t.category === 'Income') { totalIncome += amt; monthlyBreakdown[m].income += amt; }
-          else if (t.category !== 'Transfer') { totalExpense += amt; monthlyBreakdown[m].expense += amt; }
+          else { totalExpense += amt; monthlyBreakdown[m].expense += amt; }
         });
         // Compute net savings per month
         Object.keys(monthlyBreakdown).forEach(m => {

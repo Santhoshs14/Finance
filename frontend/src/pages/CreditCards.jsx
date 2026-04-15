@@ -4,6 +4,7 @@ import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
 import { accountsAPI, creditCardsAPI, budgetSnapshotsAPI } from '../services/api';
+import { calculateCreditCardHealth } from '../utils/calculations';
 import ChartCard from '../components/ChartCard';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { PlusIcon, CreditCardIcon, BanknotesIcon, PencilSquareIcon, CheckBadgeIcon, ShieldCheckIcon, ExclamationTriangleIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/outline';
@@ -339,6 +340,43 @@ export default function CreditCards() {
                     className={`h-full rounded-full ${metrics.utilPercent > 30 ? 'bg-gradient-to-r from-amber-400 to-amber-300' : 'bg-gradient-to-r from-emerald-400 to-emerald-300'}`} 
                   />
                 </div>
+
+              {/* ─── Credit Health Insight ─── */}
+              {(() => {
+                const health = calculateCreditCardHealth(activeCard, creditCards);
+                const HealthIcon = health.riskLevel === 'Critical' || health.riskLevel === 'Warning'
+                  ? ExclamationTriangleIcon : ShieldCheckIcon;
+                return (
+                  <div className="mt-6 relative z-10" style={{
+                    padding: '12px 16px', borderRadius: 14,
+                    background: `${health.riskColor}18`,
+                    border: `1px solid ${health.riskColor}40`,
+                    display: 'flex', alignItems: 'center', gap: 10,
+                  }}>
+                    <div style={{
+                      width: 34, height: 34, borderRadius: 10,
+                      background: `${health.riskColor}25`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    }}>
+                      <HealthIcon className="w-5 h-5" style={{ color: health.riskColor }} />
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: health.riskColor }}>
+                          {health.riskLevel}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)' }}>
+                          · {health.utilization.toFixed(1)}% utilization
+                        </span>
+                      </div>
+                      <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 1.4 }}>
+                        {health.paymentAdvice}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
+
               </div>
             </div>
 
@@ -540,6 +578,40 @@ export default function CreditCards() {
                     Set a spending limit to track your credit card budget against a cap.
                   </p>
                 )}
+              </div>
+            );
+          })()}
+
+          {/* ─── PAYMENT HISTORY ─── */}
+          {(() => {
+            const payments = activeTxns
+              .filter(t => t.category === 'Credit Card Payment' && parseFloat(t.amount) > 0)
+              .sort((a, b) => b.date.localeCompare(a.date))
+              .slice(0, 8);
+            if (payments.length === 0) return null;
+            return (
+              <div className={`rounded-3xl p-6 border shadow-sm ${isDark ? 'bg-dark-800 border-dark-700' : 'bg-white border-dark-100'}`}>
+                <h3 className={`font-bold text-lg mb-4 ${isDark ? 'text-white' : 'text-dark-900'}`}>Payment History</h3>
+                <div className="space-y-3">
+                  {payments.map(p => (
+                    <div key={p.id} className={`flex items-center justify-between p-3 rounded-xl ${isDark ? 'bg-dark-700/50' : 'bg-dark-50'}`}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center">
+                          <CheckBadgeIcon className="w-4 h-4 text-emerald-500" />
+                        </div>
+                        <div>
+                          <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-dark-900'}`}>
+                            Bill Payment
+                          </p>
+                          <p className={`text-xs ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>
+                            {formatShortDate(p.date)} {p.notes && `· ${p.notes}`}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="font-bold text-emerald-500">+₹{Math.abs(p.amount).toLocaleString('en-IN')}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             );
           })()}

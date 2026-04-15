@@ -10,6 +10,7 @@ import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import ChartCard from '../components/ChartCard';
 import { mutualFundsAPI, transactionsAPI, goalsAPI } from '../services/api';
 import { PlusIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import ConfirmDialog from '../components/ConfirmDialog';
 import toast from 'react-hot-toast';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
@@ -30,6 +31,8 @@ export default function Investments() {
   const [mfLoading, setMfLoading] = useState(true);
   const [editingNavId, setEditingNavId] = useState(null);
   const [newNav, setNewNav] = useState('');
+  const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', onConfirm: null });
+  const closeConfirm = () => setConfirmState(s => ({ ...s, open: false }));
 
   useEffect(() => {
     if (!currentUser) return;
@@ -255,15 +258,17 @@ export default function Investments() {
       )}
 
       {/* Summary row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6">
         {[
           { label: 'Total Invested', val: `₹${totalInvested.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, color: isDark ? 'text-blue-400' : 'text-blue-600' },
           { label: 'Current Value', val: `₹${totalCurrent.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, color: isDark ? 'text-purple-400' : 'text-purple-600' },
           { label: 'Total Return', val: `${totalPL >= 0 ? '+' : ''}₹${totalPL.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, color: totalPL >= 0 ? 'text-emerald-500' : 'text-red-500' },
+          { label: 'Return %', val: totalInvested > 0 ? `${((totalPL / totalInvested) * 100).toFixed(2)}%` : '0%', color: totalPL >= 0 ? 'text-emerald-500' : 'text-red-500' },
+          { label: 'Total SIP/mo', val: `₹${mutualFunds.reduce((s, mf) => s + (parseFloat(mf.sip_amount) || 0), 0).toLocaleString('en-IN')}`, color: isDark ? 'text-amber-400' : 'text-amber-600' },
         ].map((s, i) => (
           <div key={i} className="glass-card p-5 text-center">
-            <p className={`text-sm uppercase tracking-wider font-semibold mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{s.label}</p>
-            <p className={`text-2xl font-bold ${s.color}`}>{s.val}</p>
+            <p className={`text-xs uppercase tracking-wider font-semibold mb-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{s.label}</p>
+            <p className={`text-xl font-bold ${s.color}`}>{s.val}</p>
           </div>
         ))}
       </div>
@@ -281,6 +286,49 @@ export default function Investments() {
         </ChartCard>
       </div>
 
+      {/* ─── Fund P/L Comparison ─── */}
+      {plChartData.length > 1 && (
+        <div className="glass-card p-6 mb-6">
+          <h3 className={`text-lg font-bold mb-4 ${isDark ? 'text-white' : 'text-dark-900'}`}>Fund Returns Comparison</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {plChartData
+              .map(f => ({ ...f, plPct: f.invested > 0 ? (f.pl / f.invested) * 100 : 0 }))
+              .sort((a, b) => b.plPct - a.plPct)
+              .map((f, i, arr) => {
+                const maxPct = Math.max(...arr.map(x => Math.abs(x.plPct)), 1);
+                const barWidth = Math.max(Math.abs(f.plPct) / maxPct * 100, 3);
+                const isBest = i === 0 && f.plPct > 0;
+                const isWorst = i === arr.length - 1 && f.plPct < 0;
+                return (
+                  <div key={f.name} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: isDark ? '#d1d5db' : '#374151', width: 140, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {f.name}
+                    </span>
+                    <div style={{ flex: 1, height: 20, borderRadius: 6, background: isDark ? '#1a2235' : '#f3f4f6', overflow: 'hidden', position: 'relative' }}>
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${barWidth}%` }}
+                        transition={{ duration: 0.7, ease: 'easeOut', delay: i * 0.05 }}
+                        style={{
+                          height: '100%', borderRadius: 6,
+                          background: f.plPct >= 0
+                            ? 'linear-gradient(90deg, #1abf94, #40d9b3)'
+                            : 'linear-gradient(90deg, #ef4444, #f87171)',
+                        }}
+                      />
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 700, minWidth: 60, textAlign: 'right', color: f.plPct >= 0 ? '#10b981' : '#ef4444' }}>
+                      {f.plPct >= 0 ? '+' : ''}{f.plPct.toFixed(2)}%
+                    </span>
+                    {isBest && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>⭐ BEST</span>}
+                    {isWorst && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>WORST</span>}
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
       <h3 className={`text-lg font-bold mb-4 ${isDark ? 'text-white' : 'text-dark-900'}`}>Your Funds</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {mutualFunds.map((mf, i) => {
@@ -296,7 +344,14 @@ export default function Investments() {
                 <div className="text-right flex-shrink-0">
                   <div className="flex gap-3 justify-end mb-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => { setEditMfId(mf.id); setMfForm(mf); setShowAddMF(true); window.scrollTo(0,0); }} className="text-xs uppercase font-bold tracking-wider text-blue-500 hover:text-blue-400">Edit</button>
-                    <button onClick={() => { if(confirm('Delete this fund? Historical ledger transactions will remain safely.')) deleteMFMutation.mutate(mf.id); }} className="text-xs uppercase font-bold tracking-wider text-red-500 hover:text-red-400">Delete</button>
+                    <button onClick={() => {
+                      setConfirmState({
+                        open: true,
+                        title: 'Delete this fund?',
+                        message: 'Historical ledger transactions will remain safely. This removes the fund from your portfolio.',
+                        onConfirm: () => { closeConfirm(); deleteMFMutation.mutate(mf.id); },
+                      });
+                    }} className="text-xs uppercase font-bold tracking-wider text-red-500 hover:text-red-400">Delete</button>
                   </div>
                   <p className={`text-sm font-bold ${pl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{pl >= 0 ? '+' : ''}₹{pl.toLocaleString('en-IN', {maximumFractionDigits:0})}</p>
                   <p className={`text-[10px] ${pl >= 0 ? 'text-emerald-500/80' : 'text-red-500/80'}`}>{pl >= 0 ? '+' : ''}{plPct.toFixed(2)}%</p>
@@ -333,6 +388,16 @@ export default function Investments() {
         })}
         {mutualFunds.length === 0 && <div className="col-span-full text-center py-10 text-gray-500">You don't have any funds yet. Click "Add Fund" to start tracking.</div>}
       </div>
+
+      <ConfirmDialog
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel="Delete Fund"
+        confirmColor="danger"
+        onConfirm={confirmState.onConfirm}
+        onCancel={closeConfirm}
+      />
     </div>
   );
 }

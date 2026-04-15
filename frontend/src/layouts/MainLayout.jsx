@@ -4,8 +4,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Sidebar from './Sidebar';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useData } from '../context/DataContext';
 import { transactionsAPI } from '../services/api';
 import GlobalSearch from '../components/GlobalSearch';
+import QuickAddTransaction from '../components/QuickAddTransaction';
 import {
   Bars3Icon,
   UserIcon,
@@ -34,10 +36,13 @@ const downloadCSV = (transactions) => {
 export default function MainLayout() {
   const { isDark } = useTheme();
   const { currentUser, logout } = useAuth();
+  const { accounts, creditCards, categories, cycleStartDay } = useData();
+  const bankAccounts = accounts.filter(a => a.type !== 'credit');
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
   const menuRef = useRef(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
@@ -79,6 +84,14 @@ export default function MainLayout() {
 
   const handleLogout = () => { setMenuOpen(false); logout(); navigate('/login'); };
 
+  const handleGlobalQuickAdd = async (data) => {
+    try {
+      await transactionsAPI.create(data, cycleStartDay);
+    } catch {
+      // fail silently — toast shown by mutation in pages if needed
+    }
+  };
+
   const menuItems = [
     { icon: UserIcon, label: 'Profile', action: () => { setMenuOpen(false); navigate('/settings'); } },
     { icon: Cog6ToothIcon, label: 'Settings', action: () => { setMenuOpen(false); navigate('/settings'); } },
@@ -119,6 +132,7 @@ export default function MainLayout() {
             topbarBorder={topbarBorder}
             searchColor={searchColor}
             textMuted={textMuted}
+            onQuickAdd={() => setShowQuickAdd(true)}
           />
 
           <div style={{ flex: 1 }} />
@@ -127,19 +141,31 @@ export default function MainLayout() {
 
           {/* User Menu */}
           <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }}>
-            <button onClick={() => setMenuOpen(v => !v)}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '6px 12px', borderRadius: 12, border: `1px solid ${menuOpen ? '#1abf94' : 'transparent'}`, background: 'transparent', transition: 'all 0.2s' }}>
-              <div style={{ width: 34, height: 34, borderRadius: 10, background: 'linear-gradient(135deg, #1abf94, #107f61)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 12 }}>
+            <button
+              onClick={() => setMenuOpen(v => !v)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                cursor: 'pointer', padding: 4, background: 'transparent',
+                border: 'none', borderRadius: '50%', outline: 'none',
+              }}
+              title={displayName}
+            >
+              <div style={{
+                width: 36, height: 36, borderRadius: '50%',
+                background: 'linear-gradient(135deg, #1abf94 0%, #107f61 100%)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: 'white', fontWeight: 700, fontSize: 13, letterSpacing: '0.5px',
+                flexShrink: 0,
+                boxShadow: menuOpen ? '0 0 0 3px rgba(26,191,148,0.35)' : '0 0 0 2px rgba(26,191,148,0)',
+                transition: 'box-shadow 0.2s ease',
+              }}
+              onMouseOver={e => { if (!menuOpen) e.currentTarget.style.boxShadow = '0 0 0 3px rgba(26,191,148,0.25)'; }}
+              onMouseOut={e => { if (!menuOpen) e.currentTarget.style.boxShadow = '0 0 0 2px rgba(26,191,148,0)'; }}
+              >
                 {initials}
               </div>
-              <div className="hidden lg:block" style={{ lineHeight: 1.2, textAlign: 'left' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: isDark ? '#f3f4f6' : '#111827', margin: 0 }}>{displayName}</p>
-                  <span style={{ fontSize: 9, background: 'rgba(26,191,148,0.15)', color: '#1abf94', padding: '1px 4px', borderRadius: 4, fontWeight: 800 }}>PRO</span>
-                </div>
-                <p style={{ fontSize: 11, color: textMuted, margin: 0 }}>Analytics Access</p>
-              </div>
             </button>
+
 
             <AnimatePresence>
               {menuOpen && (
@@ -179,6 +205,16 @@ export default function MainLayout() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 40, backdropFilter: 'blur(2px)' }}
           onClick={() => setMobileMenuOpen(false)} />
       )}
+
+      {/* Global Quick-Add Transaction (triggered from search Ctrl+K) */}
+      <QuickAddTransaction
+        isOpen={showQuickAdd}
+        onClose={() => setShowQuickAdd(false)}
+        onSubmit={handleGlobalQuickAdd}
+        accounts={bankAccounts}
+        creditCards={creditCards}
+        categories={categories}
+      />
     </div>
   );
 }

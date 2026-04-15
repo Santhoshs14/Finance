@@ -30,16 +30,13 @@ export const DataProvider = ({ children }) => {
 
   const [accounts, setAccounts]       = useState([]);
   const [transactions, setTransactions] = useState([]);
-  const [budgets, setBudgets]         = useState([]);
   const [categories, setCategories]   = useState([]);
-  const [investments, setInvestments] = useState([]);
-  const [goals, setGoals]             = useState([]);
-  const [lending, setLending]         = useState([]);
   const [cycleStartDay, setCycleStartDay] = useState(25);
   const [monthlySalary, setMonthlySalary] = useState(0);
   const [currentAggregate, setCurrentAggregate] = useState({
     totalSpent: 0, totalIncome: 0, categoryBreakdown: {},
   });
+
 
   useEffect(() => {
     let unsubscribes = [];
@@ -52,11 +49,7 @@ export const DataProvider = ({ children }) => {
     if (!currentUser) {
       setAccounts([]);
       setTransactions([]);
-      setBudgets([]);
       setCategories([]);
-      setInvestments([]);
-      setGoals([]);
-      setLending([]);
       setCycleStartDay(25);
       setMonthlySalary(0);
       setCurrentAggregate({ totalSpent: 0, totalIncome: 0, categoryBreakdown: {} });
@@ -121,9 +114,7 @@ export const DataProvider = ({ children }) => {
     );
 
 
-
-    // ── Investments, Goals, Lending (moved to respective pages) ──
-
+    // ── Investments, Goals, Lending — loaded per-page for performance ──
 
 
     return cleanup;
@@ -159,20 +150,16 @@ export const DataProvider = ({ children }) => {
   const value = useMemo(() => ({
     accounts,
     transactions,
-    budgets,
     categories,
     creditCards,
-    investments,
-    goals,
-    lending,
     cycleStartDay,
     monthlySalary,
     currentAggregate,
     getCategoryById,
     getCategoryByName,
   }), [
-    accounts, transactions, budgets, categories, creditCards,
-    investments, goals, lending, cycleStartDay, monthlySalary, currentAggregate,
+    accounts, transactions, categories, creditCards,
+    cycleStartDay, monthlySalary, currentAggregate,
     getCategoryById, getCategoryByName,
   ]);
 

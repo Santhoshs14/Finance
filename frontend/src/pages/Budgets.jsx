@@ -13,6 +13,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 import { fmt } from '../utils/format';
 
@@ -210,31 +211,22 @@ function BudgetCard({ cat, limit, spent = 0, salary, isDark, onSave, cycleInfo }
               ))}
             </div>
 
-            {/* Predictive line */}
-            <AnimatePresence>
-              {hovered && projectedSpend > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  style={{ overflow: 'hidden' }}
-                >
-                  <div style={{
-                    marginTop: 10, padding: '8px 10px', borderRadius: 8,
-                    background: willExceed ? 'rgba(239,68,68,0.08)' : 'rgba(26,191,148,0.08)',
-                    border: `1px solid ${willExceed ? '#ef444433' : '#1abf9433'}`,
-                    display: 'flex', alignItems: 'center', gap: 6,
-                  }}>
-                    <ArrowTrendingUpIcon style={{ width: 13, height: 13, color: willExceed ? '#ef4444' : '#1abf94', flexShrink: 0 }} />
-                    <p style={{ margin: 0, fontSize: 11, color: willExceed ? '#ef4444' : '#1abf94' }}>
-                      {willExceed
-                        ? `Projected to reach ${fmt(projectedSpend)} by end of cycle (${daysLeft}d left)`
-                        : `On track · Est. ${fmt(projectedSpend)} by end of cycle`}
-                    </p>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {/* Predictive line — always visible when enough data exists */}
+            {projectedSpend > 0 && daysElapsed > 3 && (
+              <div style={{
+                marginTop: 10, padding: '8px 10px', borderRadius: 8,
+                background: willExceed ? 'rgba(239,68,68,0.08)' : 'rgba(26,191,148,0.08)',
+                border: `1px solid ${willExceed ? '#ef444433' : '#1abf9433'}`,
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                <ArrowTrendingUpIcon style={{ width: 13, height: 13, color: willExceed ? '#ef4444' : '#1abf94', flexShrink: 0 }} />
+                <p style={{ margin: 0, fontSize: 11, color: willExceed ? '#ef4444' : '#1abf94' }}>
+                  {willExceed
+                    ? `Projected ${fmt(projectedSpend)} by cycle end (${daysLeft}d left)`
+                    : `On track · Est. ${fmt(projectedSpend)} (${daysLeft}d left)`}
+                </p>
+              </div>
+            )}
           </>
         ) : (
           <p style={{ fontSize: 12, color: textSub, margin: '4px 0 0' }}>Click "Set limit" to track this category</p>
@@ -258,11 +250,13 @@ export default function Budgets() {
   const [limits, setLimits]               = useState({});   // { [categoryId]: number }
   const [snapshotLoading, setSnapshotLoading] = useState(true);
 
-  // ── Drag-to-reorder ──
+  // Drag-to-reorder
   const [reorderMode, setReorderMode] = useState(false);
-  const [cardOrder, setCardOrder]     = useState([]);   // array of category ids
+  const [cardOrder, setCardOrder]     = useState([]);
   const dragItem   = useRef(null);
   const dragOver   = useRef(null);
+  const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', onConfirm: null });
+  const closeConfirm = () => setConfirmState(s => ({ ...s, open: false }));
 
   const STORAGE_KEY = `wf_budget_order_${currentUser?.uid}`;
 
@@ -376,11 +370,18 @@ export default function Budgets() {
   };
 
   const handleDeleteCategory = async (id, name) => {
-    if (!confirm(`Delete category "${name}"? Existing transactions are unaffected.`)) return;
-    try {
-      await categoriesAPI.delete(id);
-      toast.success(`Category "${name}" deleted`);
-    } catch { toast.error('Failed to delete category'); }
+    setConfirmState({
+      open: true,
+      title: `Delete "${name}"?`,
+      message: 'Existing transactions using this category will be unaffected.',
+      onConfirm: async () => {
+        closeConfirm();
+        try {
+          await categoriesAPI.delete(id);
+          toast.success(`Category "${name}" deleted`);
+        } catch { toast.error('Failed to delete category'); }
+      },
+    });
   };
 
   const spendingCategories = useMemo(() =>
@@ -628,13 +629,77 @@ export default function Budgets() {
         </div>
       )}
 
+      {/* ─── Smart Suggestions ─── */}
+      {(() => {
+        const suggestions = [];
+        enriched.forEach(({ cat, limit, spent }) => {
+          if (limit <= 0 || cycleInfo.daysLeft <= 0) return;
+          const pct = (spent / limit) * 100;
+          const remaining = Math.max(0, limit - spent);
+          const dailyBudget = remaining / cycleInfo.daysLeft;
+
+          if (spent > limit) {
+            const overBy = spent - limit;
+            suggestions.push({
+              type: 'danger',
+              cat: cat.name,
+              color: cat.color,
+              message: `Over by ${fmt(overBy)} — reduce daily spend by ₹${Math.ceil(overBy / cycleInfo.daysLeft).toLocaleString('en-IN')} to recover.`,
+            });
+          } else if (pct >= 80) {
+            suggestions.push({
+              type: 'warning',
+              cat: cat.name,
+              color: cat.color,
+              message: `${fmt(remaining)} left — budget ₹${Math.ceil(dailyBudget).toLocaleString('en-IN')}/day for ${cycleInfo.daysLeft} remaining days.`,
+            });
+          }
+        });
+
+        if (suggestions.length === 0) return null;
+
+        return (
+          <div className="glass-card" style={{ padding: 20, marginTop: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <SparklesIcon style={{ width: 16, height: 16, color: '#f59e0b' }} />
+              <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: textMain }}>Smart Suggestions</p>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {suggestions.map(s => (
+                <div key={s.cat} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12,
+                  background: s.type === 'danger' ? 'rgba(239,68,68,0.06)' : 'rgba(245,158,11,0.06)',
+                  border: `1px solid ${s.type === 'danger' ? '#ef444425' : '#f59e0b25'}`,
+                }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+                  <div>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: textMain }}>{s.cat}: </span>
+                    <span style={{ fontSize: 12, color: textSub }}>{s.message}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ─── Tip ─── */}
       <div style={{ marginTop: 20, padding: '12px 16px', borderRadius: 12, background: isDark ? '#0a0e14' : '#f0fdf9', border: `1px solid ${isDark ? '#1a2235' : '#a7f3d0'}`, display: 'flex', alignItems: 'center', gap: 10 }}>
         <SparklesIcon style={{ width: 16, height: 16, color: '#1abf94', flexShrink: 0 }} />
         <p style={{ margin: 0, fontSize: 12, color: textSub }}>
-          <strong style={{ color: '#1abf94' }}>Tip:</strong> Hover over any budget card to see AI-powered spending projections for the rest of this cycle.
+          <strong style={{ color: '#1abf94' }}>Tip:</strong> Forecasts update automatically as you add transactions. Categories over 80% show per-day budget suggestions above.
         </p>
       </div>
+
+      <ConfirmDialog
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel="Delete"
+        confirmColor="danger"
+        onConfirm={confirmState.onConfirm}
+        onCancel={closeConfirm}
+      />
     </div>
   );
 }

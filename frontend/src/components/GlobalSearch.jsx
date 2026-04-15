@@ -1,7 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MagnifyingGlassIcon, ArrowsRightLeftIcon, HomeIcon, BanknotesIcon, ChartBarIcon, FlagIcon, CreditCardIcon, ChartPieIcon, Cog6ToothIcon } from '@heroicons/react/24/outline';
+import {
+  MagnifyingGlassIcon, ArrowsRightLeftIcon, HomeIcon, BanknotesIcon,
+  ChartBarIcon, FlagIcon, CreditCardIcon, ChartPieIcon, Cog6ToothIcon,
+  PlusIcon, TagIcon, CommandLineIcon,
+} from '@heroicons/react/24/outline';
 import { useData } from '../context/DataContext';
 import { useTheme } from '../context/ThemeContext';
 import { fmt } from '../utils/format';
@@ -19,10 +23,16 @@ const PAGES = [
   { label: 'Settings',     path: '/settings',     icon: Cog6ToothIcon },
 ];
 
+/* Quick actions triggered by keywords */
+const ACTIONS = [
+  { keywords: ['add transaction', 'new transaction', 'create transaction', 'add expense', 'add income'],
+    label: 'Quick Add Transaction', sub: 'Open the quick-add form', icon: PlusIcon, action: 'quick-add' },
+  { keywords: ['add category', 'new category', 'create category'],
+    label: 'Add Category', sub: 'Go to Budgets → Add Category', icon: TagIcon, path: '/budgets' },
+];
 
-
-export default function GlobalSearch({ searchBg, topbarBorder, searchColor, textMuted }) {
-  const { transactions, accounts } = useData();
+export default function GlobalSearch({ searchBg, topbarBorder, searchColor, textMuted, onQuickAdd }) {
+  const { transactions, accounts, categories } = useData();
   const { isDark } = useTheme();
   const navigate = useNavigate();
 
@@ -32,31 +42,68 @@ export default function GlobalSearch({ searchBg, topbarBorder, searchColor, text
   const inputRef = useRef(null);
   const containerRef = useRef(null);
 
-  // ── Build results ──────────────────────────────────────────────
+  // ── Ctrl+K / ⌘K shortcut ──
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        inputRef.current?.focus();
+        setOpen(true);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
+
+  // ── Build results ──
   const results = useCallback(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
 
     const out = [];
 
+    // Quick actions
+    ACTIONS.forEach(a => {
+      if (a.keywords.some(k => k.includes(q) || q.includes(k.split(' ')[0]))) {
+        out.push({
+          type: 'action', label: a.label, sub: a.sub, icon: a.icon,
+          path: a.path, actionKey: a.action,
+        });
+      }
+    });
+
     // Pages
     PAGES.filter(p => p.label.toLowerCase().includes(q)).forEach(p =>
       out.push({ type: 'page', label: p.label, sub: p.path, icon: p.icon, path: p.path })
     );
 
+    // Categories → navigate to budgets
+    categories
+      .filter(c => c.name.toLowerCase().includes(q))
+      .slice(0, 4)
+      .forEach(c =>
+        out.push({
+          type: 'category', label: c.name, sub: 'View in Budgets',
+          icon: TagIcon, path: '/budgets', catColor: c.color,
+        })
+      );
+
     // Accounts
     accounts
-      .filter(a => a.name?.toLowerCase().includes(q) || a.type?.toLowerCase().includes(q))
+      .filter(a =>
+        (a.account_name || a.name || '').toLowerCase().includes(q) ||
+        (a.type || '').toLowerCase().includes(q)
+      )
       .slice(0, 3)
       .forEach(a => out.push({
         type: 'account',
-        label: a.name,
+        label: a.account_name || a.name,
         sub: `${a.type} · ${fmt(a.balance)}`,
         path: '/accounts',
-        icon: BanknotesIcon,
+        icon: a.type === 'credit' ? CreditCardIcon : BanknotesIcon,
       }));
 
-    // Transactions
+    // Transactions — enhanced context
     transactions
       .filter(t =>
         t.category?.toLowerCase().includes(q) ||
@@ -65,17 +112,22 @@ export default function GlobalSearch({ searchBg, topbarBorder, searchColor, text
         String(t.amount).includes(q)
       )
       .slice(0, 6)
-      .forEach(t => out.push({
-        type: 'transaction',
-        label: `${t.category} — ${fmt(t.amount)}`,
-        sub: `${t.date}${t.notes ? ' · ' + t.notes : ''}`,
-        path: '/transactions',
-        icon: ArrowsRightLeftIcon,
-        txnType: t.type,
-      }));
+      .forEach(t => {
+        const parts = [t.date];
+        if (t.payment_type) parts.push(t.payment_type);
+        if (t.notes) parts.push(t.notes);
+        out.push({
+          type: 'transaction',
+          label: `${t.category} — ${fmt(t.amount)}`,
+          sub: parts.join(' · '),
+          path: '/transactions',
+          icon: ArrowsRightLeftIcon,
+          txnType: t.amount < 0 ? 'expense' : 'income',
+        });
+      });
 
     return out;
-  }, [query, transactions, accounts])();
+  }, [query, transactions, accounts, categories])();
 
   // Reset active index when results change
   useEffect(() => { setActiveIdx(0); }, [results.length]);
@@ -92,10 +144,15 @@ export default function GlobalSearch({ searchBg, topbarBorder, searchColor, text
   const handleSelect = (item) => {
     setQuery('');
     setOpen(false);
-    navigate(item.path);
+    if (item.actionKey === 'quick-add') {
+      onQuickAdd?.();
+    } else if (item.path) {
+      navigate(item.path);
+    }
   };
 
   const handleKeyDown = (e) => {
+    if (!open && query) { setOpen(true); return; }
     if (!open) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx(i => Math.min(i + 1, results.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx(i => Math.max(i - 1, 0)); }
@@ -105,13 +162,14 @@ export default function GlobalSearch({ searchBg, topbarBorder, searchColor, text
 
   const dropBg  = isDark ? '#0f1621' : '#ffffff';
   const borderC = isDark ? '#1a2235' : '#e5e7eb';
-  const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
   const activeBg = isDark ? 'rgba(26,191,148,0.12)' : 'rgba(26,191,148,0.08)';
 
-  const TypeBadge = ({ type, txnType }) => {
+  const TypeBadge = ({ type, txnType, catColor }) => {
     const colors = {
       page:        { bg: 'rgba(99,102,241,0.12)', color: '#818cf8' },
       account:     { bg: 'rgba(59,130,246,0.12)', color: '#60a5fa' },
+      category:    { bg: catColor ? `${catColor}20` : 'rgba(245,158,11,0.12)', color: catColor || '#f59e0b' },
+      action:      { bg: 'rgba(26,191,148,0.12)', color: '#1abf94' },
       transaction: txnType === 'income'
         ? { bg: 'rgba(16,185,129,0.12)', color: '#34d399' }
         : { bg: 'rgba(239,68,68,0.1)',   color: '#f87171' },
@@ -137,7 +195,7 @@ export default function GlobalSearch({ searchBg, topbarBorder, searchColor, text
         <input
           ref={inputRef}
           type="text"
-          placeholder="Search transactions, pages, accounts…"
+          placeholder="Search… (Ctrl+K)"
           value={query}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => { if (query) setOpen(true); }}
@@ -147,7 +205,7 @@ export default function GlobalSearch({ searchBg, topbarBorder, searchColor, text
             background: searchBg,
             border: `1px solid ${open ? '#1abf94' : topbarBorder}`,
             borderRadius: 12,
-            padding: '9px 14px 9px 38px',
+            padding: '9px 60px 9px 38px',
             fontSize: 13,
             color: searchColor,
             fontFamily: 'inherit',
@@ -155,6 +213,21 @@ export default function GlobalSearch({ searchBg, topbarBorder, searchColor, text
             transition: 'border-color 0.2s',
           }}
         />
+        {/* Keyboard shortcut hint */}
+        {!query && (
+          <div style={{
+            position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+            display: 'flex', gap: 3, pointerEvents: 'none',
+          }}>
+            <kbd style={{
+              padding: '1px 5px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+              border: `1px solid ${isDark ? '#374151' : '#d1d5db'}`,
+              color: isDark ? '#6b7280' : '#9ca3af',
+              background: isDark ? '#1f2937' : '#f9fafb',
+              fontFamily: 'inherit',
+            }}>⌘K</kbd>
+          </div>
+        )}
         {query && (
           <button
             onClick={() => { setQuery(''); setOpen(false); inputRef.current?.focus(); }}
@@ -193,7 +266,7 @@ export default function GlobalSearch({ searchBg, topbarBorder, searchColor, text
                   const isActive = i === activeIdx;
                   return (
                     <button
-                      key={i}
+                      key={`${item.type}-${i}`}
                       onMouseEnter={() => setActiveIdx(i)}
                       onClick={() => handleSelect(item)}
                       style={{
@@ -207,10 +280,17 @@ export default function GlobalSearch({ searchBg, topbarBorder, searchColor, text
                     >
                       <div style={{
                         width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-                        background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+                        background: item.catColor
+                          ? `${item.catColor}18`
+                          : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'),
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}>
-                        <Icon style={{ width: 16, height: 16, color: isActive ? '#1abf94' : textMuted }} />
+                        {item.catColor && (
+                          <div style={{ width: 10, height: 10, borderRadius: '50%', background: item.catColor }} />
+                        )}
+                        {!item.catColor && (
+                          <Icon style={{ width: 16, height: 16, color: isActive ? '#1abf94' : textMuted }} />
+                        )}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: searchColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -222,7 +302,7 @@ export default function GlobalSearch({ searchBg, topbarBorder, searchColor, text
                           </p>
                         )}
                       </div>
-                      <TypeBadge type={item.type} txnType={item.txnType} />
+                      <TypeBadge type={item.type} txnType={item.txnType} catColor={item.catColor} />
                     </button>
                   );
                 })}

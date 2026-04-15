@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { accountsAPI, authAPI, profileAPI } from '../services/api';
 import { PlusIcon, TrashIcon, PencilSquareIcon, SunIcon, MoonIcon, ArrowDownTrayIcon, CalendarDaysIcon } from '@heroicons/react/24/outline';
+import ConfirmDialog from '../components/ConfirmDialog';
 import toast from 'react-hot-toast';
 
 export default function Settings() {
@@ -119,10 +120,15 @@ export default function Settings() {
     setShowAdd(true);
   };
 
+  const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', onConfirm: null });
+
   const handleDelete = (id) => {
-    if (window.confirm('Are you sure you want to delete this account?')) {
-      deleteMutation.mutate(id);
-    }
+    setConfirmState({
+      open: true,
+      title: 'Delete this account?',
+      message: 'Are you sure? This will remove the account from your dashboard.',
+      onConfirm: () => { setConfirmState(s => ({ ...s, open: false })); deleteMutation.mutate(id); },
+    });
   };
 
   // Profile update is now managed via Firebase Auth (displayName) - password reset via Firebase
@@ -273,6 +279,16 @@ export default function Settings() {
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel="Delete"
+        confirmColor="danger"
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState(s => ({ ...s, open: false }))}
+      />
     </div>
   );
 }

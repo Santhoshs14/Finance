@@ -1,7 +1,9 @@
+import { memo } from 'react';
 import { motion } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
+import { calculateGoalProjection } from '../utils/calculations';
 
-export default function GoalCard({ goal, delay = 0 }) {
+function GoalCard({ goal, delay = 0, monthlySavingsRate = 0 }) {
   const { isDark } = useTheme();
   const progress = goal.target_amount > 0 ? (goal.current_amount / goal.target_amount) * 100 : 0;
   const remaining = goal.target_amount - goal.current_amount;
@@ -12,10 +14,13 @@ export default function GoalCard({ goal, delay = 0 }) {
   let monthsRemaining = 0;
   if (deadline && deadline > now) {
     monthsRemaining = (deadline.getFullYear() - now.getFullYear()) * 12 + (deadline.getMonth() - now.getMonth());
-    if (monthsRemaining <= 0) monthsRemaining = 1; // within same month
+    if (monthsRemaining <= 0) monthsRemaining = 1;
   }
   
   const requiredMonthly = (remaining > 0 && monthsRemaining > 0) ? (remaining / monthsRemaining) : 0;
+
+  // Goal projection using centralized engine
+  const projection = calculateGoalProjection(goal, monthlySavingsRate);
 
   const bg = isDark ? '#181e27' : '#ffffff';
   const border = isDark ? '#252f3e' : '#e5e7eb';
@@ -61,17 +66,28 @@ export default function GoalCard({ goal, delay = 0 }) {
         </div>
       </div>
 
-      <div className="progress-track" style={{ height: 10, marginBottom: 12 }}>
+      {/* Progress bar with projected trajectory */}
+      <div className="progress-track" style={{ height: 10, marginBottom: 12, position: 'relative' }}>
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${Math.min(progress, 100)}%` }}
           transition={{ duration: 1.2, delay: delay + 0.2, ease: 'easeOut' }}
           className="progress-fill"
-          style={{ background: 'linear-gradient(90deg, #1abf94, #40d9b3)' }}
+          style={{ background: 'linear-gradient(90deg, #1abf94, #40d9b3)', position: 'relative', zIndex: 2 }}
         />
+        {/* Projected trajectory dashed line */}
+        {projection.progressPct < 100 && projection.progressPct > progress && (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, height: '100%',
+            width: `${Math.min(projection.progressPct, 100)}%`,
+            borderRadius: 99, border: '1px dashed #1abf9466',
+            background: 'rgba(26,191,148,0.08)',
+            zIndex: 1,
+          }} />
+        )}
       </div>
 
-      <div className="flex justify-between text-sm mb-6">
+      <div className="flex justify-between text-sm mb-4">
         <div style={{ color: textMain, fontWeight: 700 }}>
           ₹{goal.current_amount?.toLocaleString('en-IN')}
           <span style={{ color: textSub, fontWeight: 400, marginLeft: 4 }}>saved</span>
@@ -80,6 +96,32 @@ export default function GoalCard({ goal, delay = 0 }) {
           goal ₹{goal.target_amount?.toLocaleString('en-IN')}
         </div>
       </div>
+
+      {/* Time projection insight */}
+      {remaining > 0 && (projection.estimatedMonths > 0 || projection.suggestedMonthly > 0) && (
+        <div style={{ 
+          background: isDark ? 'rgba(255,255,255,0.03)' : '#f0fdf9',
+          borderRadius: 12, padding: '10px 14px', border: `1px solid ${isDark ? '#1a2235' : '#a7f3d0'}`,
+          marginBottom: 10,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: projection.onTrack ? '#1abf94' : '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              {projection.onTrack ? '✓ On Track' : '⚠ Off Track'}
+            </span>
+          </div>
+          <p style={{ margin: 0, fontSize: 12, color: textSub, lineHeight: 1.5 }}>
+            {projection.estimatedDate
+              ? `Estimated completion: ${new Intl.DateTimeFormat('en-IN', { month: 'short', year: 'numeric' }).format(new Date(projection.estimatedDate))}`
+              : `~${projection.estimatedMonths || '?'} months remaining`
+            }
+            {projection.suggestedMonthly > 0 && (
+              <span style={{ color: '#1abf94', fontWeight: 600 }}>
+                {' · '}₹{Math.ceil(projection.suggestedMonthly).toLocaleString('en-IN')}/mo needed
+              </span>
+            )}
+          </p>
+        </div>
+      )}
 
       {requiredMonthly > 0 && (
         <div style={{ 
@@ -107,3 +149,5 @@ export default function GoalCard({ goal, delay = 0 }) {
     </motion.div>
   );
 }
+
+export default memo(GoalCard);

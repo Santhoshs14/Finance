@@ -279,3 +279,213 @@ export const calculateGoalCompletion = (goal) => {
     on_track: monthlyRequired <= 0 || remaining <= 0,
   };
 };
+
+/* ─────────────────────────────────────────────
+   Centralized Calculation Functions (v2)
+───────────────────────────────────────────── */
+
+/**
+ * Compute cycle summary metrics from an aggregate document.
+ * This is the SINGLE source of truth for cycle summary — used by Transactions, Dashboard, Reports.
+ * @param {{ totalSpent: number, totalIncome: number, categoryBreakdown: Object }} aggregate
+ * @param {{ daysElapsed: number, totalDays: number }} cycleInfo — from getCycleDayInfo()
+ * @returns {{ totalSpent, totalIncome, topCategory, dailyAvg, savingsRate }}
+ */
+export const calculateCycleSummary = (aggregate, cycleInfo) => {
+  const { totalSpent = 0, totalIncome = 0, categoryBreakdown = {} } = aggregate || {};
+  const { daysElapsed = 1 } = cycleInfo || {};
+
+  // Top spending category
+  const topCategory = Object.entries(categoryBreakdown)
+    .filter(([cat]) => cat !== 'Income')
+    .sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+
+  // Daily average spending
+  const dailyAvg = daysElapsed > 0 ? totalSpent / daysElapsed : 0;
+
+  // Savings rate
+  const savingsRate = totalIncome > 0
+    ? parseFloat((((totalIncome - totalSpent) / totalIncome) * 100).toFixed(1))
+    : 0;
+
+  return {
+    totalSpent: Math.round(totalSpent * 100) / 100,
+    totalIncome: Math.round(totalIncome * 100) / 100,
+    topCategory,
+    dailyAvg: Math.round(dailyAvg * 100) / 100,
+    savingsRate,
+  };
+};
+
+/**
+ * Budget forecast — predict whether a category will exceed its limit by cycle end.
+ * @param {number} spent - amount spent so far
+ * @param {number} limit - budget limit
+ * @param {number} daysElapsed
+ * @param {number} totalDays
+ * @returns {{ projectedSpend, willExceed, dailyAvg, safeDailyBudget, overBy, daysLeft }}
+ */
+export const calculateBudgetForecast = (spent, limit, daysElapsed, totalDays) => {
+  const daysLeft = Math.max(0, totalDays - daysElapsed);
+  const dailyAvg = daysElapsed > 0 ? spent / daysElapsed : 0;
+  const projectedSpend = dailyAvg * totalDays;
+  const willExceed = projectedSpend > limit && spent < limit;
+  const remaining = Math.max(0, limit - spent);
+  const safeDailyBudget = daysLeft > 0 ? remaining / daysLeft : 0;
+  const overBy = Math.max(0, spent - limit);
+
+  return {
+    projectedSpend: Math.round(projectedSpend * 100) / 100,
+    willExceed,
+    dailyAvg: Math.round(dailyAvg * 100) / 100,
+    safeDailyBudget: Math.round(safeDailyBudget * 100) / 100,
+    overBy: Math.round(overBy * 100) / 100,
+    daysLeft,
+    remaining: Math.round(remaining * 100) / 100,
+  };
+};
+
+/**
+ * Goal projection — estimate when a goal will be reached based on average contribution rate.
+ * @param {{ target_amount: number, current_amount: number, deadline: string }} goal
+ * @param {number} avgMonthlyContribution — average amount saved per month toward this goal
+ * @returns {{ estimatedMonths, estimatedDate, onTrack, suggestedMonthly, progressPct }}
+ */
+export const calculateGoalProjection = (goal, avgMonthlyContribution = 0) => {
+  const remaining = Math.max(0, goal.target_amount - goal.current_amount);
+  const progressPct = goal.target_amount > 0
+    ? parseFloat(((goal.current_amount / goal.target_amount) * 100).toFixed(1))
+    : 0;
+
+  if (remaining <= 0) {
+    return { estimatedMonths: 0, estimatedDate: null, onTrack: true, suggestedMonthly: 0, progressPct: 100 };
+  }
+
+  // Months remaining until deadline
+  const deadline = goal.deadline ? new Date(goal.deadline) : null;
+  const now = new Date();
+  const deadlineMonths = deadline
+    ? Math.max(0, (deadline.getFullYear() - now.getFullYear()) * 12 + (deadline.getMonth() - now.getMonth()))
+    : null;
+
+  // Estimated months at current saving rate
+  const estimatedMonths = avgMonthlyContribution > 0
+    ? Math.ceil(remaining / avgMonthlyContribution)
+    : null;
+
+  // Estimated completion date
+  const estimatedDate = estimatedMonths !== null
+    ? new Date(now.getFullYear(), now.getMonth() + estimatedMonths, now.getDate()).toISOString().split('T')[0]
+    : null;
+
+  // Is the goal on track to be reached before the deadline?
+  const onTrack = estimatedMonths !== null && deadlineMonths !== null
+    ? estimatedMonths <= deadlineMonths
+    : false;
+
+  // Suggested monthly savings to reach goal on time
+  const suggestedMonthly = deadlineMonths && deadlineMonths > 0
+    ? Math.round((remaining / deadlineMonths) * 100) / 100
+    : remaining;
+
+  return { estimatedMonths, estimatedDate, onTrack, suggestedMonthly, progressPct };
+};
+
+/**
+ * Credit card health assessment — unified utilization and risk analysis.
+ * Resolves shared limits automatically.
+ * @param {Object} card - the active credit card
+ * @param {Object[]} allCards - all credit cards (for shared limit resolution)
+ * @returns {{ utilization, riskLevel, riskColor, paymentAdvice, idealPayment }}
+ */
+export const calculateCreditCardHealth = (card, allCards = []) => {
+  let limit = parseFloat(card.credit_limit || 0);
+  let outstanding = parseFloat(card.liability || 0);
+
+  // Resolve shared limits
+  if (card.shared_limit_with) {
+    // This card is a child — find parent, use parent's limit
+    const parent = allCards.find(c => c.id === card.shared_limit_with) || card;
+    limit = parseFloat(parent.credit_limit || 0);
+    // Outstanding = parent's own liability + all children's liabilities (including this card)
+    outstanding = parseFloat(parent.liability || 0);
+    allCards
+      .filter(c => c.shared_limit_with === parent.id)
+      .forEach(c => { outstanding += parseFloat(c.liability || 0); });
+  } else {
+    // This card is standalone or a parent — outstanding = own + all children
+    allCards
+      .filter(c => c.shared_limit_with === card.id)
+      .forEach(c => { outstanding += parseFloat(c.liability || 0); });
+  }
+
+  const utilization = limit > 0
+    ? parseFloat(((outstanding / limit) * 100).toFixed(1))
+    : 0;
+
+  // Risk levels
+  let riskLevel, riskColor;
+  if (utilization > 90)      { riskLevel = 'Critical'; riskColor = '#ef4444'; }
+  else if (utilization > 60) { riskLevel = 'Warning';  riskColor = '#f97316'; }
+  else if (utilization > 30) { riskLevel = 'Moderate'; riskColor = '#f59e0b'; }
+  else                       { riskLevel = 'Safe';     riskColor = '#10b981'; }
+
+  // Payment advice: how much to pay to bring utilization to 30%
+  const ideal30 = limit * 0.3;
+  const idealPayment = outstanding > ideal30 ? Math.round((outstanding - ideal30) * 100) / 100 : 0;
+
+  let paymentAdvice = '';
+  if (outstanding <= 0) {
+    paymentAdvice = 'All clear! No outstanding balance.';
+  } else if (utilization <= 30) {
+    paymentAdvice = `Utilization is healthy at ${utilization}%.`;
+  } else {
+    paymentAdvice = `Pay ₹${idealPayment.toLocaleString('en-IN')} to bring utilization below 30%.`;
+  }
+
+  return { utilization, riskLevel, riskColor, paymentAdvice, idealPayment, outstanding, limit };
+};
+
+/**
+ * Compare two cycle aggregates to generate trend data.
+ * @param {{ totalSpent: number, totalIncome: number, categoryBreakdown: Object }} current
+ * @param {{ totalSpent: number, totalIncome: number, categoryBreakdown: Object }} previous
+ * @returns {{ spendingChange, incomeChange, spendingPctChange, incomePctChange, categoryChanges }}
+ */
+export const compareCycles = (current, previous) => {
+  const curr = current || { totalSpent: 0, totalIncome: 0, categoryBreakdown: {} };
+  const prev = previous || { totalSpent: 0, totalIncome: 0, categoryBreakdown: {} };
+
+  const spendingChange = curr.totalSpent - prev.totalSpent;
+  const incomeChange = curr.totalIncome - prev.totalIncome;
+
+  const spendingPctChange = prev.totalSpent > 0
+    ? parseFloat(((spendingChange / prev.totalSpent) * 100).toFixed(1))
+    : (curr.totalSpent > 0 ? 100 : 0);
+
+  const incomePctChange = prev.totalIncome > 0
+    ? parseFloat(((incomeChange / prev.totalIncome) * 100).toFixed(1))
+    : (curr.totalIncome > 0 ? 100 : 0);
+
+  // Category-level changes
+  const allCats = new Set([
+    ...Object.keys(curr.categoryBreakdown || {}),
+    ...Object.keys(prev.categoryBreakdown || {}),
+  ]);
+
+  const SKIP_CATS_COMPARE = new Set(['Income', 'Transfer', 'Credit Card Payment']);
+
+  const categoryChanges = [];
+  allCats.forEach(cat => {
+    if (SKIP_CATS_COMPARE.has(cat)) return;
+    const currVal = (curr.categoryBreakdown || {})[cat] || 0;
+    const prevVal = (prev.categoryBreakdown || {})[cat] || 0;
+    const change = currVal - prevVal;
+    const pctChange = prevVal > 0 ? parseFloat(((change / prevVal) * 100).toFixed(1)) : (currVal > 0 ? 100 : 0);
+    categoryChanges.push({ category: cat, current: currVal, previous: prevVal, change, pctChange });
+  });
+
+  categoryChanges.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+
+  return { spendingChange, incomeChange, spendingPctChange, incomePctChange, categoryChanges };
+};

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { motion } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
 
@@ -29,7 +30,19 @@ const resolveCatColor = (categoryName, categories = []) => {
   return found?.color || FALLBACK_COLORS[categoryName] || '#94a3b8';
 };
 
-export default function TransactionTable({ transactions, onEdit, onDelete, categories = [], accounts = [], creditCards = [] }) {
+function TransactionTable({
+  transactions,
+  onEdit,
+  onDelete,
+  categories = [],
+  accounts = [],
+  creditCards = [],
+  /* ── Bulk selection props ── */
+  selectable = false,
+  selectedIds = new Set(),
+  onToggleSelect,
+  onToggleSelectAll,
+}) {
   const allAccounts = [...accounts, ...creditCards];
   const resolveAccount = (accountId) => {
     if (!accountId) return null;
@@ -46,11 +59,26 @@ export default function TransactionTable({ transactions, onEdit, onDelete, categ
     );
   }
 
+  const allSelected = transactions.length > 0 && transactions.every(t => selectedIds.has(t.id));
+  const someSelected = transactions.some(t => selectedIds.has(t.id));
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full">
         <thead>
           <tr className={`${isDark ? 'text-dark-400 border-dark-700' : 'text-dark-500 border-dark-200'} border-b`}>
+            {selectable && (
+              <th className="py-3 px-2 w-10">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                  onChange={() => onToggleSelectAll?.(transactions)}
+                  className="w-4 h-4 rounded cursor-pointer accent-emerald-500"
+                  title={allSelected ? 'Deselect all' : 'Select all'}
+                />
+              </th>
+            )}
             <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider">Date</th>
             <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider">Category</th>
             <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider">Payment</th>
@@ -68,6 +96,7 @@ export default function TransactionTable({ transactions, onEdit, onDelete, categ
             const sign = isTransfer ? (txn.amount < 0 ? '↗ ' : '↘ ') : (txn.amount < 0 ? '-' : '+');
             const linkedAccount = resolveAccount(txn.account_id);
             const isCreditCard = linkedAccount && creditCards.some(c => c.id === linkedAccount.id);
+            const isChecked = selectedIds.has(txn.id);
             
             return (
               <motion.tr
@@ -75,8 +104,18 @@ export default function TransactionTable({ transactions, onEdit, onDelete, categ
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.3, delay: Math.min(i * 0.03, 0.3) }}
-                className={`${isDark ? 'border-dark-800 hover:bg-dark-800/50' : 'border-dark-100 hover:bg-dark-50'} border-b transition-colors duration-200`}
+                className={`${isDark ? 'border-dark-800 hover:bg-dark-800/50' : 'border-dark-100 hover:bg-dark-50'} border-b transition-colors duration-200 ${isChecked ? (isDark ? 'bg-emerald-500/10' : 'bg-emerald-50') : ''}`}
               >
+                {selectable && (
+                  <td className="py-3 px-2">
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => onToggleSelect?.(txn.id)}
+                      className="w-4 h-4 rounded cursor-pointer accent-emerald-500"
+                    />
+                  </td>
+                )}
                 <td className={`py-3 px-4 text-sm whitespace-nowrap ${isDark ? 'text-dark-300' : 'text-dark-600'}`}>
                   {new Date(txn.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                 </td>
@@ -155,3 +194,6 @@ export default function TransactionTable({ transactions, onEdit, onDelete, categ
     </div>
   );
 }
+
+// Memo: only re-render when transactions, selectedIds, or callbacks change
+export default memo(TransactionTable);

@@ -391,10 +391,10 @@ export default function Dashboard() {
     return {
       highestSpendingDay: topDay ? { date: topDay[0], amount: topDay[1] } : null,
       mostFrequentCategory: topCat ? { name: topCat[0], count: topCat[1] } : null,
-      dailyAvg: cycleSummary.dailyAvg,
+      dailyAvg: cashFlow.dailyAvgSpend,
       totalTxns: cycleTxns.filter(t => t.amount < 0 && t.category !== 'Transfer').length,
     };
-  }, [cycleTxns, cycleSummary.dailyAvg]);
+  }, [cycleTxns, cashFlow.dailyAvgSpend]);
 
   /* ─── Risk Alerts ─── */
   const riskAlerts = useMemo(() => {

@@ -256,23 +256,40 @@ export default function Dashboard() {
     [transactions, currentCycle]
   );
 
-  const income = cycleTxns
-    .filter(t => t.amount > 0 && t.category !== 'Transfer' && !t.payment_type?.includes('Transfer') && t.category !== 'Credit Card Payment')
-    .reduce((s, t) => s + t.amount, 0);
+  const cashFlow = useMemo(() => {
+    let tIncome = 0;
+    let tExpense = 0;
+    const skipCats = new Set(['Transfer', 'Credit Card Payment']);
+    const isSkip = (t) => 
+      t.payment_type === 'Credit Card' || 
+      t.payment_type === 'Self Transfer' || 
+      t.payment_type === 'Transfer' || 
+      skipCats.has(t.category);
+
+    cycleTxns.forEach(t => {
+      if (isSkip(t)) return;
+      if (t.category === 'Income') {
+        tIncome += Math.abs(t.amount);
+      } else if (t.amount < 0) {
+        tExpense += Math.abs(t.amount);
+      }
+    });
+
+    return {
+      totalIncome: tIncome,
+      totalExpenses: tExpense,
+      netSavings: tIncome - tExpense,
+      dailyAvgSpend: cycleInfo.daysElapsed > 0 ? tExpense / cycleInfo.daysElapsed : 0,
+    };
+  }, [cycleTxns, cycleInfo]);
+
+  const income = cashFlow.totalIncome;
   const savingsTxns = cycleTxns.filter(t => t.amount < 0 && (t.category === 'Investment' || t.category === 'Savings'));
   const totalSavedInCycle = savingsTxns.reduce((s, t) => s + Math.abs(t.amount), 0);
   const savingsRate = income > 0 ? (totalSavedInCycle / income * 100) : 0;
 
   /* ─── Cycle Summary ─── */
   const cycleSummary = useMemo(() => calculateCycleSummary(currentAggregate, cycleInfo), [currentAggregate, cycleInfo]);
-
-  /* ─── Cash Flow ─── */
-  const cashFlow = useMemo(() => ({
-    totalIncome:   cycleSummary.totalIncome,
-    totalExpenses: cycleSummary.totalSpent,
-    netSavings:    cycleSummary.totalIncome - cycleSummary.totalSpent,
-    dailyAvgSpend: cycleSummary.dailyAvg,
-  }), [cycleSummary]);
 
   const { data: budgetLimits = {} } = useQuery({
     queryKey: ['dashboardBudgets', currentCycle?.cycleKey],

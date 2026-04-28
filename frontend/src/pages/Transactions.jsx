@@ -102,21 +102,39 @@ export default function Transactions() {
 
   /* ─────────────────────────────────────────────────────────
      SUMMARY METRICS
-     Source: contextTransactions (latest 200, already loaded).
-     For the CURRENT cycle this is always accurate.
-     For PAST cycles beyond 200 transactions, it falls back
-     gracefully to whatever is in context (may be partial).
+     Source: dedicated Firestore query for the selected cycle
+     (no limit) so past cycles like April are always accurate.
   ───────────────────────────────────────────────────────── */
+  const [summaryTxns, setSummaryTxns] = useState([]);
+
+  useEffect(() => {
+    if (!currentUser || !cycleStart || !cycleEnd) {
+      setSummaryTxns([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, `users/${currentUser.uid}/transactions`),
+      where('date', '>=', cycleStart),
+      where('date', '<=', cycleEnd),
+      orderBy('date', 'desc')
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      setSummaryTxns(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => {
+      console.error('Summary listener error:', err);
+    });
+
+    return () => unsub();
+  }, [currentUser, cycleStart, cycleEnd]);
+
   const summaryMetrics = useMemo(() => {
     let totalIncome = 0;
     let totalSpent  = 0;
     const catMap = {};
 
-    const start = activeCycle?.startDate ?? '';
-    const end   = activeCycle?.endDate   ?? '';
-
-    contextTransactions.forEach(t => {
-      if (!start || t.date < start || t.date > end) return;
+    summaryTxns.forEach(t => {
       if (SKIP_CATS.has(t.category) || SKIP_TYPES.has(t.payment_type)) return;
 
       const amt = parseFloat(t.amount || 0);
@@ -142,7 +160,7 @@ export default function Transactions() {
       dailyAvg:    Math.round(dailyAvg    * 100) / 100,
       savingsRate,
     };
-  }, [contextTransactions, activeCycle?.startDate, activeCycle?.endDate, cycleInfo.daysElapsed]);
+  }, [summaryTxns, cycleInfo.daysElapsed]);
 
   /* ─── Advanced Filters ─── */
   const [filters, setFilters]         = useState({ ...DEFAULT_FILTERS });

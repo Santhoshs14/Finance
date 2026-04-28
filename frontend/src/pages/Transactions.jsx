@@ -93,6 +93,10 @@ export default function Transactions() {
     [activeCycle?.cycleKey]
   );
 
+  /* ─── Firestore listener (paginated table only) ─── */
+  const cycleStart = activeCycle?.startDate ?? '';
+  const cycleEnd   = activeCycle?.endDate   ?? '';
+
   // Paginated table state (Firestore subscription for current cycle)
   const [transactions, setTransactions]   = useState([]);
   const [lastVisible, setLastVisible]     = useState(null);
@@ -209,10 +213,6 @@ export default function Transactions() {
       return allSelected ? new Set() : new Set(allVisible);
     });
   }, []);
-
-  /* ─── Firestore listener (paginated table only) ─── */
-  const cycleStart = activeCycle?.startDate ?? '';
-  const cycleEnd   = activeCycle?.endDate   ?? '';
 
   useEffect(() => {
     if (!currentUser || !cycleStart || !cycleEnd) return;

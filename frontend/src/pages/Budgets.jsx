@@ -5,7 +5,7 @@ import { useData } from '../context/DataContext';
 import { budgetSnapshotsAPI, categoriesAPI, profileAPI } from '../services/api';
 import { getFinancialCycle, getCycleDayInfo, getRecentFinancialMonths } from '../utils/financialMonth';
 import { db } from '../config/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, doc, query, where, getDocs, addDoc, deleteDoc } from 'firebase/firestore';
 import {
   PencilSquareIcon, CheckIcon, XMarkIcon,
   BanknotesIcon, SparklesIcon,
@@ -263,7 +263,7 @@ export default function Budgets() {
   const [limits, setLimits]               = useState({});   // { [categoryId]: number }
   const [snapshotLoading, setSnapshotLoading] = useState(true);
 
-  // Drag-to-reorder
+  // Drag-to-reorder  — order is per-cycle so new cats in Apr don't bleed into May
   const [reorderMode, setReorderMode] = useState(false);
   const [cardOrder, setCardOrder]     = useState([]);
   const dragItem   = useRef(null);
@@ -271,31 +271,66 @@ export default function Budgets() {
   const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', onConfirm: null });
   const closeConfirm = () => setConfirmState(s => ({ ...s, open: false }));
 
-  const STORAGE_KEY = `wf_budget_order_${currentUser?.uid}`;
+  // Key is per-user AND per-cycle so April order != May order
+  const STORAGE_KEY = `wf_budget_order_${currentUser?.uid}_${cycleKey}`;
 
-  // Load saved order from localStorage
+  // Load saved order from localStorage whenever cycle changes
   useEffect(() => {
     if (!currentUser) return;
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) setCardOrder(JSON.parse(saved));
+      setCardOrder(saved ? JSON.parse(saved) : []);
     } catch {
-      // Ignore parse errors from localStorage and fallback to default order
+      setCardOrder([]);
     }
   }, [currentUser, STORAGE_KEY]);
 
-  // Persist order whenever it changes
+  // Persist order whenever it changes (always persist, even empty, so deletions stick)
   useEffect(() => {
-    if (!currentUser || cardOrder.length === 0) return;
+    if (!currentUser) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cardOrder));
   }, [cardOrder, currentUser, STORAGE_KEY]);
+
+  // Keep a ref to the current enriched list so handleDragEnd never has stale closure
+  const enrichedRef = useRef([]);
+
+  // ── Cycle-local categories (stored per-cycle in budget snapshot) ──
+  const [cycleLocalCats, setCycleLocalCats] = useState([]);
+  const cycleLocalCatsRef = `users/${currentUser?.uid}/budgetSnapshots/${cycleKey}/cycleCategories`;
+
+  // Load cycle-local categories whenever cycleKey changes
+  useEffect(() => {
+    if (!currentUser) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const snap = await getDocs(collection(db, cycleLocalCatsRef));
+        if (!cancelled) {
+          setCycleLocalCats(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
+      } catch (e) {
+        console.error('Failed to load cycle-local categories:', e);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, cycleKey]); // cycleKey change already re-derives cycleLocalCatsRef
 
   const handleDragStart = (id) => { dragItem.current = id; };
   const handleDragEnter = (id) => { dragOver.current = id; };
   const handleDragEnd   = () => {
     if (!dragItem.current || !dragOver.current || dragItem.current === dragOver.current) return;
     setCardOrder(prev => {
-      const arr = prev.length ? [...prev] : enriched.map(e => e.cat.id);
+      // Use ref so we always have current enriched list (avoids stale closure)
+      const allIds = enrichedRef.current.map(e => e.cat.id);
+      const indexMap = {};
+      prev.forEach((id, i) => { indexMap[id] = i; });
+      const arr = [...allIds].sort((a, b) => {
+        const ia = indexMap[a] ?? 9999;
+        const ib = indexMap[b] ?? 9999;
+        return ia - ib;
+      });
       const from = arr.indexOf(dragItem.current);
       const to   = arr.indexOf(dragOver.current);
       if (from === -1 || to === -1) return prev;
@@ -319,6 +354,7 @@ export default function Budgets() {
   const [showAddCat, setShowAddCat] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [newCatColor, setNewCatColor] = useState('#6366f1');
+  const [newCatScope, setNewCatScope] = useState('this-cycle'); // 'this-cycle' | 'global'
 
   // Load snapshot using subcollection structure, carry-forward from previous cycle
   useEffect(() => {
@@ -410,38 +446,82 @@ export default function Budgets() {
     }
   }, [cycleKey]);
 
-  // Add Category
+  // Add Category — routes to global or cycle-local based on user choice
   const handleAddCategory = async () => {
     const name = newCatName.trim();
     if (!name) { toast.error('Category name is required'); return; }
-    if (categories.some(c => c.name.toLowerCase() === name.toLowerCase())) {
+    const allNames = [...categories, ...cycleLocalCats].map(c => c.name.toLowerCase());
+    if (allNames.includes(name.toLowerCase())) {
       toast.error('Category already exists'); return;
     }
-    try {
-      await categoriesAPI.create({ name, color: newCatColor });
-      toast.success(`Category "${name}" added!`);
-      setNewCatName(''); setNewCatColor('#6366f1'); setShowAddCat(false);
-    } catch { toast.error('Failed to add category'); }
+
+    if (newCatScope === 'global') {
+      // Write to global /categories collection — appears in ALL cycles
+      try {
+        await categoriesAPI.create({ name, color: newCatColor });
+        toast.success(`"${name}" added to all cycles`);
+        setNewCatName(''); setNewCatColor('#6366f1'); setNewCatScope('this-cycle'); setShowAddCat(false);
+      } catch { toast.error('Failed to add category'); }
+    } else {
+      // Write to budgetSnapshot cycleCategories — this cycle only
+      try {
+        const newCat = { name, color: newCatColor, cycleLocal: true, createdAt: new Date().toISOString() };
+        const ref = await addDoc(collection(db, cycleLocalCatsRef), newCat);
+        setCycleLocalCats(prev => [...prev, { id: ref.id, ...newCat }]);
+        toast.success(`"${name}" added for ${cycle.label} only`);
+        setNewCatName(''); setNewCatColor('#6366f1'); setNewCatScope('this-cycle'); setShowAddCat(false);
+      } catch { toast.error('Failed to add category'); }
+    }
   };
 
+  // Delete category — routes based on whether it's cycle-local or global
   const handleDeleteCategory = async (id, name) => {
-    setConfirmState({
-      open: true,
-      title: `Delete "${name}"?`,
-      message: 'Existing transactions using this category will be unaffected.',
-      onConfirm: async () => {
-        closeConfirm();
-        try {
-          await categoriesAPI.delete(id);
-          toast.success(`Category "${name}" deleted`);
-        } catch { toast.error('Failed to delete category'); }
-      },
-    });
+    const isLocal = cycleLocalCats.some(c => c.id === id);
+
+    if (isLocal) {
+      setConfirmState({
+        open: true,
+        title: `Remove "${name}" from ${cycle.label}?`,
+        message: 'This only removes it from this cycle. It will not affect other cycles or transactions.',
+        onConfirm: async () => {
+          closeConfirm();
+          try {
+            await deleteDoc(doc(db, cycleLocalCatsRef, id));
+            // Also remove any budget limit set for this cat in this cycle
+            try { await deleteDoc(doc(db, `users/${currentUser.uid}/budgetSnapshots/${cycleKey}/categories/${id}`)); } catch { /* no limit set, ok */ }
+            setCycleLocalCats(prev => prev.filter(c => c.id !== id));
+            setCardOrder(prev => prev.filter(ordId => ordId !== id));
+            toast.success(`"${name}" removed from ${cycle.label}`);
+          } catch { toast.error('Failed to remove category'); }
+        },
+      });
+    } else {
+      // Global category — deletes from all cycles
+      setConfirmState({
+        open: true,
+        title: `Delete "${name}" globally?`,
+        message: 'This will remove the category from ALL cycles. Existing transactions using this category will be unaffected.',
+        onConfirm: async () => {
+          closeConfirm();
+          try {
+            await categoriesAPI.delete(id);
+            toast.success(`"${name}" deleted from all cycles`);
+          } catch { toast.error('Failed to delete category'); }
+        },
+      });
+    }
   };
 
-  const spendingCategories = useMemo(() =>
-    categories.filter(c => c.name !== 'Income' && c.name !== 'Transfer' && c.name !== 'Credit Card Payment'), [categories]
-  );
+  // Global spending categories (filtered) + cycle-local cats merged
+  const spendingCategories = useMemo(() => {
+    const global = categories.filter(
+      c => c.name !== 'Income' && c.name !== 'Transfer' && c.name !== 'Credit Card Payment'
+    );
+    // Merge cycle-local cats — skip any that duplicate a global name
+    const globalNames = new Set(global.map(c => c.name.toLowerCase()));
+    const localOnly = cycleLocalCats.filter(c => !globalNames.has(c.name.toLowerCase()));
+    return [...global, ...localOnly];
+  }, [categories, cycleLocalCats]);
 
   // Spend map: for current cycle use context transactions, for past cycles use Firestore query
   const spendMap = useMemo(() => {
@@ -474,15 +554,19 @@ export default function Budgets() {
       limit: limits[cat.id] || 0,
       spent: spendMap[cat.name] || 0,
     }));
-    if (!cardOrder.length) return base;
-    // Sort by saved order; new categories not yet in order go to end
-    const indexMap = {};
-    cardOrder.forEach((id, i) => { indexMap[id] = i; });
-    return [...base].sort((a, b) => {
-      const ia = indexMap[a.cat.id] ?? 9999;
-      const ib = indexMap[b.cat.id] ?? 9999;
-      return ia - ib;
-    });
+    const sorted = (() => {
+      if (!cardOrder.length) return base;
+      const indexMap = {};
+      cardOrder.forEach((id, i) => { indexMap[id] = i; });
+      return [...base].sort((a, b) => {
+        const ia = indexMap[a.cat.id] ?? 9999;
+        const ib = indexMap[b.cat.id] ?? 9999;
+        return ia - ib;
+      });
+    })();
+    // Keep ref in sync for drag handler (avoids stale closure in handleDragEnd)
+    enrichedRef.current = sorted;
+    return sorted;
   }, [spendingCategories, limits, spendMap, cardOrder]);
 
   const totalBudgeted = enriched.reduce((s, b) => s + b.limit, 0);
@@ -679,6 +763,41 @@ export default function Budgets() {
             style={{ overflow: 'hidden', marginBottom: 16 }}>
             <div className="glass-card" style={{ padding: 16 }}>
               <p style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 700, color: textMain }}>New Category</p>
+
+              {/* ── Scope toggle ── */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                {[
+                  { key: 'this-cycle', label: `📅 ${cycle.label} only`, desc: 'Only visible in this cycle' },
+                  { key: 'global',     label: '🌐 All cycles',           desc: 'Appears in every cycle' },
+                ].map(opt => {
+                  const active = newCatScope === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      onClick={() => setNewCatScope(opt.key)}
+                      style={{
+                        flex: 1, padding: '9px 12px', borderRadius: 10, cursor: 'pointer',
+                        fontFamily: 'inherit', textAlign: 'left', transition: 'all 0.15s',
+                        border: `2px solid ${active
+                          ? (opt.key === 'global' ? '#6366f1' : '#1abf94')
+                          : (isDark ? '#252f3e' : '#e5e7eb')}`,
+                        background: active
+                          ? (opt.key === 'global'
+                              ? (isDark ? 'rgba(99,102,241,0.12)' : 'rgba(99,102,241,0.07)')
+                              : (isDark ? 'rgba(26,191,148,0.12)' : 'rgba(26,191,148,0.07)'))
+                          : (isDark ? '#0a0e14' : '#f9fafb'),
+                      }}
+                    >
+                      <p style={{ margin: 0, fontSize: 12, fontWeight: 700,
+                        color: active ? (opt.key === 'global' ? '#6366f1' : '#1abf94') : textMain }}>
+                        {opt.label}
+                      </p>
+                      <p style={{ margin: '2px 0 0', fontSize: 11, color: textSub }}>{opt.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                 <input
                   type="text" value={newCatName} onChange={e => setNewCatName(e.target.value)}
@@ -691,8 +810,14 @@ export default function Budgets() {
                       style={{ width: 24, height: 24, borderRadius: '50%', background: c, border: newCatColor === c ? '3px solid white' : '2px solid transparent', cursor: 'pointer', boxShadow: newCatColor === c ? `0 0 0 2px ${c}` : 'none', outline: 'none' }} />
                   ))}
                 </div>
-                <button onClick={handleAddCategory} className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px' }}>
-                  <PlusIcon style={{ width: 14, height: 14 }} /> Add
+                <button onClick={handleAddCategory} className="btn-primary" style={{
+                  display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px',
+                  background: newCatScope === 'global'
+                    ? 'linear-gradient(135deg, #6366f1, #4338ca)'
+                    : 'linear-gradient(135deg, #1abf94, #107f61)',
+                }}>
+                  <PlusIcon style={{ width: 14, height: 14 }} />
+                  {newCatScope === 'global' ? 'Add Globally' : 'Add for This Cycle'}
                 </button>
                 <button onClick={() => setShowAddCat(false)} className="btn-secondary" style={{ padding: '8px 14px' }}>Cancel</button>
               </div>
@@ -744,7 +869,7 @@ export default function Budgets() {
               {!reorderMode && (
                 <button
                   onClick={() => handleDeleteCategory(cat.id, cat.name)}
-                  title="Remove category"
+                  title={cycleLocalCats.some(c => c.id === cat.id) ? 'Remove from this cycle' : 'Delete globally'}
                   style={{
                     position: 'absolute', top: 8, right: 8, width: 22, height: 22,
                     border: 'none', borderRadius: 6, background: isDark ? '#1e2732' : '#fee2e2',

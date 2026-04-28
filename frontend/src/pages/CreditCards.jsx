@@ -7,9 +7,9 @@ import { accountsAPI, creditCardsAPI, budgetSnapshotsAPI } from '../services/api
 import { calculateCreditCardHealth } from '../utils/calculations';
 import ChartCard from '../components/ChartCard';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
-import { PlusIcon, CreditCardIcon, BanknotesIcon, PencilSquareIcon, CheckBadgeIcon, ShieldCheckIcon, ExclamationTriangleIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, CreditCardIcon, BanknotesIcon, PencilSquareIcon, CheckBadgeIcon, ShieldCheckIcon, ExclamationTriangleIcon, CheckIcon, XMarkIcon, ChevronLeftIcon, ChevronRightIcon, CalendarDaysIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
-import { getFinancialCycle, formatShortDate } from '../utils/financialMonth';
+import { getFinancialCycle, formatShortDate, getRecentFinancialMonths } from '../utils/financialMonth';
 import { fmt } from '../utils/format';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
@@ -28,6 +28,8 @@ export default function CreditCards() {
   const [cardForm, setCardForm] = useState({ account_name: '', credit_limit: '', billing_cycle_start_day: 1, due_days_after: 20, shared_limit_with: '' });
   const [payForm, setPayForm] = useState({ account_id: '', amount: '', date: new Date().toISOString().split('T')[0] });
   const [isEditMode, setIsEditMode] = useState(false);
+  const [showMarkPaid, setShowMarkPaid] = useState(false);
+  const [markPaidAmount, setMarkPaidAmount] = useState('');
 
   // ── CC Spending Budget state ──
   const [ccBudgetLimit, setCcBudgetLimit] = useState(0);
@@ -97,6 +99,21 @@ export default function CreditCards() {
     onError: (e) => toast.error(e?.message || 'Failed to record payment.')
   });
 
+  const markPaidMutation = useMutation({
+    mutationFn: async (amountToClear) => {
+      // Just zero out (or reduce) the liability — no transactions created
+      const current = parseFloat(activeCard?.liability || 0);
+      const newLiability = Math.max(0, current - amountToClear);
+      await accountsAPI.update(activeCardId, { liability: Math.round(newLiability * 100) / 100 });
+    },
+    onSuccess: () => {
+      toast.success('Card marked as paid!');
+      setShowMarkPaid(false);
+      invalidateAll();
+    },
+    onError: (e) => toast.error(e?.message || 'Failed to mark as paid.')
+  });
+
   const handleCardSubmit = (e) => {
     e.preventDefault();
     const data = {
@@ -126,12 +143,17 @@ export default function CreditCards() {
     setShowAddCard(true);
   };
 
+  const [selectedCycleIdx, setSelectedCycleIdx] = useState(0);
+
   // ── CC Budget: derive cycle key from active card's billing cycle ──
-  const activeCycleCycleKey = useMemo(() => {
-    const today = new Date();
-    const cardCycleDay = activeCard ? parseInt(activeCard.billing_cycle_start_day) || 1 : cycleStartDay;
-    return getFinancialCycle(today, cardCycleDay).cycleKey;
-  }, [activeCard, cycleStartDay]);
+  const cardCycleStartDay = activeCard ? (parseInt(activeCard.billing_cycle_start_day) || cycleStartDay) : cycleStartDay;
+  const FINANCIAL_MONTHS = useMemo(
+    () => getRecentFinancialMonths(8, new Date(), cardCycleStartDay),
+    [cardCycleStartDay]
+  );
+  const selectedCycle = FINANCIAL_MONTHS[selectedCycleIdx] ?? FINANCIAL_MONTHS[0];
+  const activeCycleCycleKey = selectedCycle.cycleKey;
+  const isPastCycle = selectedCycleIdx > 0;
 
   // Load CC budget limit for current cycle
   useEffect(() => {
@@ -171,6 +193,10 @@ export default function CreditCards() {
   // Metrics for active card
   const activeTxns = useMemo(() => ccTxns.filter(t => t.account_id === activeCardId), [ccTxns, activeCardId]);
   
+  const cycleTxnsFiltered = useMemo(() => {
+    return activeTxns.filter(t => t.date >= selectedCycle.startDate && t.date <= selectedCycle.endDate);
+  }, [activeTxns, selectedCycle]);
+
   const metrics = useMemo(() => {
     if (!activeCard) return null;
     const balance = parseFloat(activeCard.liability || 0);
@@ -203,37 +229,32 @@ export default function CreditCards() {
     const available = limit - sharedLiability;
     const utilPercent = limit > 0 ? ((sharedLiability / limit) * 100).toFixed(1) : 0;
     
-    // Cycle logic
-    const today = new Date();
-    const cycle = getFinancialCycle(today, parseInt(activeCard.billing_cycle_start_day) || 1);
-    
     // Spend this cycle
-    const cycleTxns = activeTxns.filter(t => t.date >= cycle.startDate && t.date <= cycle.endDate);
     let cycleSpend = 0;
     let cyclePaid = 0;
-    cycleTxns.forEach(t => {
+    cycleTxnsFiltered.forEach(t => {
       const amt = parseFloat(t.amount || 0);
       if (amt < 0) cycleSpend += Math.abs(amt);
       else cyclePaid += amt;
     });
 
-    const dueDateObj = new Date(cycle.endDate);
+    const dueDateObj = new Date(selectedCycle.endDate);
     dueDateObj.setDate(dueDateObj.getDate() + (parseInt(activeCard.due_days_after) || 20));
 
-    return { balance, limit, available, utilPercent, cycleSpend, cyclePaid, cycle, dueDate: dueDateObj.toISOString().split('T')[0], isShared, parentCardName: parentCard?.account_name, sharedLiability };
-  }, [activeCard, activeTxns, creditCards]);
+    return { balance, limit, available, utilPercent, cycleSpend, cyclePaid, cycle: selectedCycle, dueDate: dueDateObj.toISOString().split('T')[0], isShared, parentCardName: parentCard?.account_name, sharedLiability };
+  }, [activeCard, creditCards, selectedCycle, cycleTxnsFiltered]);
 
   // Charts data
   const categoryData = useMemo(() => {
     const acc = {};
-    activeTxns.forEach(t => {
+    cycleTxnsFiltered.forEach(t => {
       const amt = parseFloat(t.amount || 0);
       if (amt < 0) {
         acc[t.category] = (acc[t.category] || 0) + Math.abs(amt);
       }
     });
     return Object.entries(acc).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value);
-  }, [activeTxns]);
+  }, [cycleTxnsFiltered]);
 
   const tooltipStyle = {
     contentStyle: {
@@ -383,9 +404,33 @@ export default function CreditCards() {
             {/* BILLING CYCLES */}
             <div className={`lg:w-1/3 rounded-3xl p-6 border flex flex-col justify-between shadow-lg ${isDark ? 'bg-dark-800 border-dark-700' : 'bg-white border-dark-200'}`}>
               <div>
-                <div className="flex items-center gap-2 mb-4">
-                  <BanknotesIcon className={`w-6 h-6 ${isDark ? 'text-primary-400' : 'text-primary-600'}`} />
-                  <h3 className={`font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Current Cycle</h3>
+                <div className="flex items-center gap-2 mb-4 justify-between">
+                  <div className="flex items-center gap-2">
+                    <CalendarDaysIcon className={`w-5 h-5 ${isDark ? 'text-primary-400' : 'text-primary-600'}`} />
+                    <h3 className={`font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>
+                      {isPastCycle ? metrics.cycle.label : 'Current Cycle'}
+                    </h3>
+                  </div>
+                  {/* Cycle Navigation */}
+                  <div className="flex items-center gap-2 bg-dark-50 dark:bg-dark-700/50 p-1 rounded-xl">
+                    <button
+                      onClick={() => setSelectedCycleIdx(i => Math.min(i + 1, FINANCIAL_MONTHS.length - 1))}
+                      disabled={selectedCycleIdx >= FINANCIAL_MONTHS.length - 1}
+                      className="p-1 rounded-lg hover:bg-dark-200 dark:hover:bg-dark-600 disabled:opacity-30 transition-all"
+                    >
+                      <ChevronLeftIcon className="w-4 h-4 text-dark-500 dark:text-dark-400" />
+                    </button>
+                    <span className="text-xs font-bold text-dark-600 dark:text-dark-300 min-w-[32px] text-center">
+                      {isPastCycle ? 'Past' : 'Now'}
+                    </span>
+                    <button
+                      onClick={() => setSelectedCycleIdx(i => Math.max(i - 1, 0))}
+                      disabled={selectedCycleIdx <= 0}
+                      className="p-1 rounded-lg hover:bg-dark-200 dark:hover:bg-dark-600 disabled:opacity-30 transition-all"
+                    >
+                      <ChevronRightIcon className="w-4 h-4 text-dark-500 dark:text-dark-400" />
+                    </button>
+                  </div>
                 </div>
                 <div className={`text-sm font-medium mb-6 px-3 py-1.5 rounded-lg inline-block ${isDark ? 'bg-dark-700 text-dark-300' : 'bg-dark-50 text-dark-600'}`}>
                   {formatShortDate(metrics.cycle.startDate)} — {formatShortDate(metrics.cycle.endDate)}
@@ -414,7 +459,20 @@ export default function CreditCards() {
                       <CheckBadgeIcon className="w-4 h-4" /> Cleared
                     </div>
                   ) : (
-                    <button onClick={() => setShowPayBill(true)} className="btn-primary text-sm py-1.5 px-4 shadow-md shadow-primary-500/20">Pay Bill</button>
+                    <div className="flex flex-col gap-2 items-end">
+                      <button onClick={() => setShowPayBill(true)} className="btn-primary text-sm py-1.5 px-4 shadow-md shadow-primary-500/20">Pay Bill</button>
+                      <button
+                        onClick={() => { setMarkPaidAmount(String(metrics.balance)); setShowMarkPaid(true); }}
+                        style={{
+                          fontSize: 11, fontWeight: 700, color: '#10b981', background: 'rgba(16,185,129,0.10)',
+                          border: '1px solid rgba(16,185,129,0.30)', borderRadius: 8,
+                          padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit',
+                          display: 'flex', alignItems: 'center', gap: 4,
+                        }}
+                      >
+                        <CheckBadgeIcon className="w-3.5 h-3.5" /> Mark as Paid
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -584,7 +642,7 @@ export default function CreditCards() {
 
           {/* ─── PAYMENT HISTORY ─── */}
           {(() => {
-            const payments = activeTxns
+            const payments = cycleTxnsFiltered
               .filter(t => t.category === 'Credit Card Payment' && parseFloat(t.amount) > 0)
               .sort((a, b) => b.date.localeCompare(a.date))
               .slice(0, 8);
@@ -622,11 +680,11 @@ export default function CreditCards() {
             <div className={`px-6 py-5 border-b ${isDark ? 'border-dark-700' : 'border-dark-100'} flex justify-between items-center`}>
               <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-dark-900'}`}>Recent Transactions</h3>
             </div>
-            {activeTxns.length === 0 ? (
-              <div className={`p-8 text-center ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No transactions found for this card.</div>
+            {cycleTxnsFiltered.length === 0 ? (
+              <div className={`p-8 text-center ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No transactions found for this card in this cycle.</div>
             ) : (
               <div className="divide-y divide-dark-100 dark:divide-dark-700">
-                {activeTxns.slice(0, 10).map(txn => {
+                {cycleTxnsFiltered.slice(0, 10).map(txn => {
                   const isExpense = parseFloat(txn.amount) < 0;
                   return (
                     <div key={txn.id} className={`px-6 py-4 flex justify-between items-center hover:bg-dark-50 dark:hover:bg-dark-700/50 transition-colors`}>
@@ -711,6 +769,56 @@ export default function CreditCards() {
             </motion.div>
           </motion.div>
         )}
+
+        {/* ── Mark as Paid Modal ── */}
+        <AnimatePresence>
+          {showMarkPaid && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} className={`w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden ${isDark ? 'bg-dark-800 border border-dark-700' : 'bg-white border border-dark-200'}`}>
+              <div className={`px-6 py-5 border-b ${isDark ? 'border-dark-700' : 'border-dark-100'}`}>
+                <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Mark as Paid</h3>
+                <p className={`text-xs mt-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>No transaction will be recorded — only the outstanding balance is updated.</p>
+              </div>
+              <div className="p-6 space-y-5">
+                <div className={`p-4 rounded-xl ${isDark ? 'bg-emerald-900/20 border border-emerald-500/30' : 'bg-emerald-50 border border-emerald-100'}`}>
+                  <p className={`text-xs font-semibold tracking-wider uppercase mb-1 ${isDark ? 'text-emerald-300' : 'text-emerald-600'}`}>Outstanding Balance</p>
+                  <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-emerald-900'}`}>₹{metrics?.balance?.toLocaleString('en-IN')}</p>
+                </div>
+                <div>
+                  <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Amount Paid (₹)</label>
+                  <input
+                    type="number" step="0.01" min="0" max={metrics?.balance || 0}
+                    value={markPaidAmount}
+                    onChange={e => setMarkPaidAmount(e.target.value)}
+                    className="input-field w-full"
+                    placeholder="0.00"
+                    autoFocus
+                  />
+                  <p className={`text-xs mt-1.5 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>
+                    Leave at full amount to fully clear the balance.
+                  </p>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => { setShowMarkPaid(false); setMarkPaidAmount(''); }} className="btn-secondary flex-1 py-2.5">Cancel</button>
+                  <button
+                    type="button"
+                    disabled={markPaidMutation.isPending}
+                    onClick={() => {
+                      const amt = parseFloat(markPaidAmount);
+                      if (isNaN(amt) || amt <= 0) { toast.error('Enter a valid amount'); return; }
+                      markPaidMutation.mutate(amt);
+                    }}
+                    className="btn-primary flex-1 py-2.5 shadow-lg shadow-emerald-500/20"
+                    style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}
+                  >
+                    {markPaidMutation.isPending ? 'Saving...' : 'Confirm'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+          )}
+        </AnimatePresence>
 
         {showPayBill && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">

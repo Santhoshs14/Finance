@@ -3,13 +3,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
 import { budgetSnapshotsAPI, categoriesAPI, profileAPI } from '../services/api';
-import { getFinancialCycle, getCycleDayInfo } from '../utils/financialMonth';
+import { getFinancialCycle, getCycleDayInfo, getRecentFinancialMonths } from '../utils/financialMonth';
+import { db } from '../config/firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import {
   PencilSquareIcon, CheckIcon, XMarkIcon,
   BanknotesIcon, SparklesIcon,
   PlusIcon, TrashIcon, InformationCircleIcon,
   ArrowTrendingUpIcon, ExclamationTriangleIcon, ShieldCheckIcon,
-  Bars3Icon,
+  Bars3Icon, ChevronLeftIcon, ChevronRightIcon, CalendarDaysIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
@@ -79,7 +81,7 @@ function SalaryBanner({ salary, onEdit, isDark }) {
 }
 
 /* ─── Budget Card ─── */
-function BudgetCard({ cat, limit, spent = 0, salary, isDark, onSave, cycleInfo }) {
+function BudgetCard({ cat, limit, spent = 0, salary, isDark, onSave, cycleInfo, isPastCycle = false }) {
   const [editing, setEditing]   = useState(false);
   const [value, setValue]       = useState(String(limit));
   const [hovered, setHovered]   = useState(false);
@@ -93,13 +95,13 @@ function BudgetCard({ cat, limit, spent = 0, salary, isDark, onSave, cycleInfo }
   const textMain   = isDark ? '#f3f4f6' : '#111827';
   const textSub    = isDark ? '#9ca3af' : '#6b7280';
 
-  // Predictive analytics
+  // Predictive analytics (only for current cycle)
   const { daysElapsed, totalDays, daysLeft } = cycleInfo;
-  const projectedSpend = limit > 0 && daysElapsed > 0
+  const projectedSpend = !isPastCycle && limit > 0 && daysElapsed > 0
     ? (spent / daysElapsed) * totalDays
     : 0;
   const projectedPct = limit > 0 ? (projectedSpend / limit) * 100 : 0;
-  const willExceed   = projectedSpend > limit && spent < limit;
+  const willExceed   = !isPastCycle && projectedSpend > limit && spent < limit;
 
   const handleSave = () => {
     const v = parseFloat(value);
@@ -211,8 +213,8 @@ function BudgetCard({ cat, limit, spent = 0, salary, isDark, onSave, cycleInfo }
               ))}
             </div>
 
-            {/* Predictive line — always visible when enough data exists */}
-            {projectedSpend > 0 && daysElapsed > 3 && (
+            {/* Predictive line — only visible for current cycle when enough data exists */}
+            {!isPastCycle && projectedSpend > 0 && daysElapsed > 3 && (
               <div style={{
                 marginTop: 10, padding: '8px 10px', borderRadius: 8,
                 background: willExceed ? 'rgba(239,68,68,0.08)' : 'rgba(26,191,148,0.08)',
@@ -242,9 +244,20 @@ export default function Budgets() {
   const { categories, transactions, cycleStartDay, monthlySalary } = useData();
   const { currentUser } = useAuth();
 
-  const cycle = useMemo(() => getFinancialCycle(new Date(), cycleStartDay), [cycleStartDay]);
+  // Cycle navigation (similar to Transactions page)
+  const [selectedCycleIdx, setSelectedCycleIdx] = useState(0);
+  const FINANCIAL_MONTHS = useMemo(
+    () => getRecentFinancialMonths(8, new Date(), cycleStartDay),
+    [cycleStartDay]
+  );
+  const cycle = FINANCIAL_MONTHS[selectedCycleIdx] ?? FINANCIAL_MONTHS[0];
   const cycleKey = cycle.cycleKey;
   const cycleInfo = useMemo(() => getCycleDayInfo(cycle), [cycle]);
+  const isPastCycle = selectedCycleIdx > 0;
+
+  // Past cycle spend data (fetched from Firestore)
+  const [pastCycleSpendMap, setPastCycleSpendMap] = useState({});
+  const [pastCycleLoading, setPastCycleLoading] = useState(false);
 
   // Budget limits per categoryId
   const [limits, setLimits]               = useState({});   // { [categoryId]: number }
@@ -344,6 +357,48 @@ export default function Budgets() {
     return () => { cancelled = true; };
   }, [cycleKey, cycleStartDay]);
 
+  // Load spend data for past cycles from Firestore
+  useEffect(() => {
+    if (!isPastCycle || !currentUser) {
+      setPastCycleSpendMap({});
+      return;
+    }
+    let cancelled = false;
+    const loadPastSpend = async () => {
+      setPastCycleLoading(true);
+      try {
+        const q = query(
+          collection(db, `users/${currentUser.uid}/transactions`),
+          where('date', '>=', cycle.startDate),
+          where('date', '<=', cycle.endDate)
+        );
+        const snap = await getDocs(q);
+        const map = {};
+        snap.docs.forEach(d => {
+          const t = d.data();
+          if (t.payment_type === 'Credit Card') return;
+          if (
+            t.payment_type === 'Self Transfer' ||
+            t.payment_type === 'Transfer' ||
+            t.category === 'Transfer' ||
+            t.category === 'Credit Card Payment'
+          ) return;
+          const amount = parseFloat(t.amount || 0);
+          if (amount < 0 && t.category) {
+            map[t.category] = (map[t.category] || 0) + Math.abs(amount);
+          }
+        });
+        if (!cancelled) setPastCycleSpendMap(map);
+      } catch (e) {
+        console.error('Failed to load past cycle spend data:', e);
+      } finally {
+        if (!cancelled) setPastCycleLoading(false);
+      }
+    };
+    loadPastSpend();
+    return () => { cancelled = true; };
+  }, [isPastCycle, currentUser, cycle.startDate, cycle.endDate]);
+
   // Save a limit for a specific category
   const handleSaveLimit = useCallback(async (categoryId, limit) => {
     setLimits(prev => ({ ...prev, [categoryId]: limit }));
@@ -388,9 +443,9 @@ export default function Budgets() {
     categories.filter(c => c.name !== 'Income' && c.name !== 'Transfer' && c.name !== 'Credit Card Payment'), [categories]
   );
 
-  // Spend map computed from non-CC transactions only, filtered to current cycle
-  // Credit card transactions (payment_type === 'Credit Card') are excluded from category budgets
+  // Spend map: for current cycle use context transactions, for past cycles use Firestore query
   const spendMap = useMemo(() => {
+    if (isPastCycle) return pastCycleSpendMap;
     const map = {};
     transactions.forEach(t => {
       // Skip CC transactions — they belong to the CC budget, not category budgets
@@ -411,7 +466,7 @@ export default function Budgets() {
       }
     });
     return map;
-  }, [transactions, cycleKey]);
+  }, [transactions, cycleKey, isPastCycle, pastCycleSpendMap]);
 
   const enriched = useMemo(() => {
     const base = spendingCategories.map(cat => ({
@@ -443,13 +498,89 @@ export default function Budgets() {
 
   return (
     <div>
-      {/* ─── Header ─── */}
-      <div style={{ marginBottom: 22 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 800, color: textMain, margin: 0 }}>Budgets</h1>
-        <p style={{ fontSize: 13, color: textSub, margin: '4px 0 0' }}>
-          {cycle.label} · {cycle.startDate} → {cycle.endDate} · Day {cycleInfo.daysElapsed}/{cycleInfo.totalDays}
-        </p>
+      {/* ─── Header with Cycle Navigation ─── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 22, flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h1 style={{ fontSize: 26, fontWeight: 800, color: textMain, margin: 0 }}>Budgets</h1>
+          <p style={{ fontSize: 13, color: textSub, margin: '4px 0 0' }}>
+            {cycle.startDate} → {cycle.endDate}{!isPastCycle ? ` · Day ${cycleInfo.daysElapsed}/${cycleInfo.totalDays}` : ' · Completed'}
+          </p>
+        </div>
+
+        {/* Cycle Navigation */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => setSelectedCycleIdx(i => Math.min(i + 1, FINANCIAL_MONTHS.length - 1))}
+            disabled={selectedCycleIdx >= FINANCIAL_MONTHS.length - 1}
+            style={{
+              width: 34, height: 34, borderRadius: 10, border: `1px solid ${isDark ? '#252f3e' : '#e5e7eb'}`,
+              background: isDark ? '#161b22' : '#f9fafb', cursor: selectedCycleIdx >= FINANCIAL_MONTHS.length - 1 ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              opacity: selectedCycleIdx >= FINANCIAL_MONTHS.length - 1 ? 0.4 : 1, transition: 'all 0.15s',
+            }}
+          >
+            <ChevronLeftIcon style={{ width: 16, height: 16, color: textSub }} />
+          </button>
+
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '7px 16px', borderRadius: 10,
+            background: isPastCycle
+              ? (isDark ? 'rgba(245,158,11,0.1)' : 'rgba(245,158,11,0.08)')
+              : (isDark ? '#161b22' : '#f9fafb'),
+            border: `1px solid ${isPastCycle ? '#f59e0b44' : (isDark ? '#252f3e' : '#e5e7eb')}`,
+            minWidth: 160, justifyContent: 'center',
+          }}>
+            <CalendarDaysIcon style={{ width: 15, height: 15, color: isPastCycle ? '#f59e0b' : '#1abf94', flexShrink: 0 }} />
+            <span style={{ fontSize: 14, fontWeight: 700, color: isPastCycle ? '#f59e0b' : textMain, whiteSpace: 'nowrap' }}>
+              {cycle.label}
+            </span>
+            {selectedCycleIdx === 0 && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#1abf94', background: 'rgba(26,191,148,0.12)', padding: '2px 6px', borderRadius: 6 }}>NOW</span>
+            )}
+          </div>
+
+          <button
+            onClick={() => setSelectedCycleIdx(i => Math.max(i - 1, 0))}
+            disabled={selectedCycleIdx <= 0}
+            style={{
+              width: 34, height: 34, borderRadius: 10, border: `1px solid ${isDark ? '#252f3e' : '#e5e7eb'}`,
+              background: isDark ? '#161b22' : '#f9fafb', cursor: selectedCycleIdx <= 0 ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              opacity: selectedCycleIdx <= 0 ? 0.4 : 1, transition: 'all 0.15s',
+            }}
+          >
+            <ChevronRightIcon style={{ width: 16, height: 16, color: textSub }} />
+          </button>
+
+          {isPastCycle && (
+            <button
+              onClick={() => setSelectedCycleIdx(0)}
+              style={{
+                padding: '7px 14px', borderRadius: 10, fontSize: 12, fontWeight: 600,
+                background: isDark ? '#0c1f1a' : '#ecfdf5', border: `1px solid ${isDark ? '#1a3a3a' : '#6ee7b7'}`,
+                color: '#1abf94', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
+              }}
+            >
+              ↗ Current
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Past cycle indicator banner */}
+      {isPastCycle && (
+        <div style={{
+          padding: '10px 14px', borderRadius: 12, marginBottom: 14,
+          background: isDark ? 'rgba(245,158,11,0.06)' : 'rgba(245,158,11,0.06)',
+          border: '1px solid rgba(245,158,11,0.25)',
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <CalendarDaysIcon style={{ width: 16, height: 16, color: '#f59e0b', flexShrink: 0 }} />
+          <p style={{ margin: 0, fontSize: 12, color: '#f59e0b' }}>
+            <strong>Viewing {cycle.label}</strong> — You can modify budget limits for this past cycle. Spend data reflects actual transactions.
+          </p>
+        </div>
+      )}
 
       {/* ─── Alerts ─── */}
       {overBudgetCount > 0 && (
@@ -571,7 +702,7 @@ export default function Budgets() {
       </AnimatePresence>
 
       {/* ─── Budget Grid ─── */}
-      {snapshotLoading ? (
+      {(snapshotLoading || pastCycleLoading) ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0', gap: 12, flexDirection: 'column', alignItems: 'center' }}>
           <div style={{ width: 40, height: 40, borderRadius: '50%', border: '3px solid rgba(26,191,148,0.2)', borderTopColor: '#1abf94', animation: 'spin 0.9s linear infinite' }} />
           <p style={{ color: textSub, fontSize: 13 }}>Loading budgets...</p>
@@ -608,6 +739,7 @@ export default function Budgets() {
               <BudgetCard
                 cat={cat} limit={limit} spent={spent} salary={monthlySalary}
                 isDark={isDark} onSave={handleSaveLimit} cycleInfo={cycleInfo}
+                isPastCycle={isPastCycle}
               />
               {!reorderMode && (
                 <button
@@ -633,7 +765,7 @@ export default function Budgets() {
       {(() => {
         const suggestions = [];
         enriched.forEach(({ cat, limit, spent }) => {
-          if (limit <= 0 || cycleInfo.daysLeft <= 0) return;
+          if (limit <= 0 || cycleInfo.daysLeft <= 0 || isPastCycle) return;
           const pct = (spent / limit) * 100;
           const remaining = Math.max(0, limit - spent);
           const dailyBudget = remaining / cycleInfo.daysLeft;

@@ -6,6 +6,7 @@ import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../config/firebase';
 import { collection, query, where, orderBy, limit, startAfter, getDocs, onSnapshot } from 'firebase/firestore';
+import { getFinancialCycle } from '../utils/financialMonth';
 import TransactionTable from '../components/TransactionTable';
 import QuickAddTransaction from '../components/QuickAddTransaction';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -79,6 +80,35 @@ export default function Transactions() {
   const [bulkBusy, setBulkBusy] = useState(false);
 
   const { accounts, creditCards, categories, cycleStartDay, transactions: contextTransactions } = useData();
+
+  // ─── Cycle-local categories (added via Budgets page with "this-cycle" scope) ───
+  const [cycleLocalCats, setCycleLocalCats] = useState([]);
+
+  useEffect(() => {
+    if (!currentUser || !cycleStartDay) return;
+    let cancelled = false;
+    const loadCycleLocalCats = async () => {
+      try {
+        const activeCycleKey = getFinancialCycle(new Date(), cycleStartDay).cycleKey;
+        const ref = collection(db, `users/${currentUser.uid}/budgetSnapshots/${activeCycleKey}/cycleCategories`);
+        const snap = await getDocs(ref);
+        if (!cancelled) {
+          setCycleLocalCats(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
+      } catch (e) {
+        console.error('Failed to load cycle-local categories:', e);
+      }
+    };
+    loadCycleLocalCats();
+    return () => { cancelled = true; };
+  }, [currentUser, cycleStartDay]);
+
+  // Merged categories: global + cycle-local (deduplicated by name)
+  const allCategories = useMemo(() => {
+    const globalNames = new Set(categories.map(c => c.name.toLowerCase()));
+    const localOnly = cycleLocalCats.filter(c => !globalNames.has(c.name.toLowerCase()));
+    return [...categories, ...localOnly];
+  }, [categories, cycleLocalCats]);
 
   // Recompute cycle list when cycleStartDay changes
   const FINANCIAL_MONTHS = useMemo(
@@ -730,7 +760,7 @@ export default function Transactions() {
               <div style={{ marginTop: 14 }}>
                 <label style={{ fontSize: 11, fontWeight: 600, color: textSub, display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Categories</label>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {categories
+                  {allCategories
                     .filter(c => !SKIP_CATS.has(c.name))
                     .map(cat => {
                       const isActive = filters.categories.includes(cat.name);
@@ -819,7 +849,7 @@ export default function Transactions() {
                   style={{ fontSize: 12, padding: '5px 10px', minWidth: 140 }}
                 >
                   <option value="">Move to category...</option>
-                  {categories
+                  {allCategories
                     .filter(c => !SKIP_CATS.has(c.name))
                     .map(cat => (
                       <option key={cat.id} value={cat.name}>{cat.name}</option>
@@ -948,7 +978,7 @@ export default function Transactions() {
             onSubmit={handleSubmit}
             accounts={accounts}
             creditCards={creditCards}
-            categories={categories}
+            categories={allCategories}
             initialData={editTxn}
           />
         )}

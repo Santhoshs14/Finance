@@ -7,7 +7,8 @@ import { useAuth } from '../context/AuthContext';
 import { db } from '../config/firebase';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { lendingAPI } from '../services/api';
-import { PlusIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, TrashIcon } from '@heroicons/react/24/outline';
+import ConfirmDialog from '../components/ConfirmDialog';
 import toast from 'react-hot-toast';
 
 export default function Lending() {
@@ -17,6 +18,8 @@ export default function Lending() {
   const [form, setForm] = useState({ person_name: '', amount: '', type: 'lent', status: 'pending', date: new Date().toISOString().split('T')[0] });
 
   const [repayForm, setRepayForm] = useState({ id: null, amount: '' });
+  const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', onConfirm: null });
+  const closeConfirm = () => setConfirmState(s => ({ ...s, open: false }));
 
   const { currentUser } = useAuth();
   const [records, setRecords] = useState([]);
@@ -50,6 +53,24 @@ export default function Lending() {
     },
     onError: () => toast.error('Failed to record repayment')
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => lendingAPI.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lending'] });
+      toast.success('Record deleted!');
+    },
+    onError: () => toast.error('Failed to delete record')
+  });
+
+  const handleDelete = (id, name) => {
+    setConfirmState({
+      open: true,
+      title: `Delete record for "${name}"?`,
+      message: 'This will permanently remove this lending/borrowing record.',
+      onConfirm: () => { closeConfirm(); deleteMutation.mutate(id); },
+    });
+  };
 
   const handleAdd = (e) => {
     e.preventDefault();
@@ -120,6 +141,13 @@ export default function Lending() {
                       <div className="flex items-center gap-2">
                         <span className={`text-xs px-2 py-1 rounded-full ${r.type === 'lent' ? 'bg-warning-500/20 text-warning-500' : 'bg-danger-500/20 text-danger-500'}`}>{r.type}</span>
                         <span className={`text-xs px-2 py-1 rounded-full ${r.status === 'settled' || r.status === 'repaid' ? 'bg-accent-500/20 text-accent-500' : r.status === 'partial' ? 'bg-primary-500/20 text-primary-500' : 'bg-dark-400/20 text-dark-400'}`}>{r.status}</span>
+                        <button
+                          onClick={() => handleDelete(r.id, r.person_name)}
+                          title="Delete record"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', borderRadius: 6, color: '#ef4444', display: 'flex', alignItems: 'center' }}
+                        >
+                          <TrashIcon style={{ width: 15, height: 15 }} />
+                        </button>
                       </div>
                       <div className="text-right">
                         <span className={`block font-bold mt-1 ${isDark ? 'text-white' : 'text-dark-900'}`}>₹{r.amount?.toLocaleString('en-IN')}</span>
@@ -152,6 +180,16 @@ export default function Lending() {
           </div>
         ) : <p className={`text-center py-12 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No records yet</p>}
       </div>
+
+      <ConfirmDialog
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel="Delete"
+        confirmColor="danger"
+        onConfirm={confirmState.onConfirm}
+        onCancel={closeConfirm}
+      />
     </div>
   );
 }

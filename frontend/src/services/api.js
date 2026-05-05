@@ -774,6 +774,29 @@ export const lendingAPI = {
   create: async (data) => await addDoc(getUserRef('lending'), data),
   update: async (id, data) => await updateDoc(getDocRef('lending', id), data),
   delete: async (id) => await deleteDoc(getDocRef('lending', id)),
+
+  /**
+   * Record a repayment for a lending/borrowing record.
+   * Accumulates paid_amount and updates status to 'partial' or 'settled'.
+   */
+  repay: async (id, repayAmount) => {
+    const uid = getUid();
+    const ref = doc(db, `users/${uid}/lending/${id}`);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) throw new Error('Lending record not found');
+
+    const data = snap.data();
+    const totalAmount = parseFloat(data.amount || 0);
+    const prevPaid = parseFloat(data.paid_amount || 0);
+    const newPaid = Math.min(prevPaid + parseFloat(repayAmount), totalAmount);
+    const newStatus = newPaid >= totalAmount ? 'settled' : 'partial';
+
+    await updateDoc(ref, {
+      paid_amount: Math.round(newPaid * 100) / 100,
+      status: newStatus,
+      updatedAt: new Date().toISOString(),
+    });
+  },
 };
 
 /* ─────────────────────────────────────────────

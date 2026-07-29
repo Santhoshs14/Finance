@@ -3,11 +3,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
-import { accountsAPI, creditCardsAPI, budgetSnapshotsAPI } from '../services/api';
+import { accountsAPI, creditCardsAPI, budgetSnapshotsAPI, transactionsAPI } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { calculateCreditCardHealth } from '../utils/calculations';
 import ChartCard from '../components/ChartCard';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
-import { PlusIcon, CreditCardIcon, BanknotesIcon, PencilSquareIcon, CheckBadgeIcon, ShieldCheckIcon, ExclamationTriangleIcon, CheckIcon, XMarkIcon, ChevronLeftIcon, ChevronRightIcon, CalendarDaysIcon } from '@heroicons/react/24/outline';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { PlusIcon, CreditCardIcon, BanknotesIcon, PencilSquareIcon, CheckBadgeIcon, ShieldCheckIcon, ExclamationTriangleIcon, CheckIcon, XMarkIcon, ChevronLeftIcon, ChevronRightIcon, CalendarDaysIcon, ChartBarIcon, ClockIcon, ArrowTrendingUpIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { getFinancialCycle, formatShortDate, getRecentFinancialMonths } from '../utils/financialMonth';
 import { fmt } from '../utils/format';
@@ -16,10 +17,13 @@ const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 
 const CC_BUDGET_CATEGORY_KEY = 'cc-spending-budget';
 
+const CC_TXN_CATEGORIES = ['Shopping','Dining','Travel','Entertainment','Groceries','Fuel','Utilities','Healthcare','Subscriptions','EMI','Other'];
+
 export default function CreditCards() {
   const { isDark } = useTheme();
   const queryClient = useQueryClient();
-  const { accounts, creditCards, transactions, cycleStartDay } = useData();
+  const { currentUser } = useAuth();
+  const { accounts, creditCards, categories, transactions, cycleStartDay } = useData();
   const bankAccounts = useMemo(() => accounts.filter(a => a.type !== 'credit'), [accounts]);
 
   const [showAddCard, setShowAddCard] = useState(false);
@@ -30,6 +34,11 @@ export default function CreditCards() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [showMarkPaid, setShowMarkPaid] = useState(false);
   const [markPaidAmount, setMarkPaidAmount] = useState('');
+  const [activeTab, setActiveTab] = useState('overview');
+  // Add CC Transaction state
+  const [showAddCCTxn, setShowAddCCTxn] = useState(false);
+  const [ccTxnForm, setCcTxnForm] = useState({ amount: '', category: '', notes: '', date: new Date().toISOString().split('T')[0] });
+  const [ccTxnSearch, setCcTxnSearch] = useState('');
 
   // ── CC Spending Budget state ──
   const [ccBudgetLimit, setCcBudgetLimit] = useState(0);
@@ -77,6 +86,30 @@ export default function CreditCards() {
       setIsEditMode(false);
       setShowAddCard(false);
     }
+  });
+
+  // ── Add CC Transaction mutation ──────────────────────────────────
+  const addCCTxnMutation = useMutation({
+    mutationFn: async (data) => {
+      // Creates transaction on the CC account (expense = negative amount)
+      // transactionsAPI.create handles liability update atomically
+      await transactionsAPI.create({
+        amount: -Math.abs(parseFloat(data.amount)), // always debit
+        account_id: activeCardId,
+        category: data.category || 'Shopping',
+        date: data.date,
+        notes: data.notes || '',
+        payment_type: 'Credit Card',
+      }, cycleStartDay);
+    },
+    onSuccess: () => {
+      toast.success('Transaction added!');
+      setShowAddCCTxn(false);
+      setCcTxnForm({ amount: '', category: '', notes: '', date: new Date().toISOString().split('T')[0] });
+      invalidateAll();
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+    },
+    onError: (e) => toast.error(e?.message || 'Failed to add transaction'),
   });
 
   const payBillMutation = useMutation({
@@ -267,15 +300,82 @@ export default function CreditCards() {
   return (
     <div className="pb-20">
       {/* HEADER */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <div>
           <h1 className={`text-3xl font-extrabold tracking-tight ${isDark ? 'text-white' : 'text-dark-900'}`}>Credit Cards</h1>
-          <p className={`mt-1 text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Manage accounts, statements, and utilization</p>
+          <p className={`mt-1 text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Your dedicated credit management platform</p>
         </div>
         <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => { setIsEditMode(false); setCardForm({ account_name: '', credit_limit: '', billing_cycle_start_day: 1, due_days_after: 20, shared_limit_with: '' }); setShowAddCard(true); }} className="btn-primary flex items-center gap-2 shadow-lg shadow-primary-500/20">
           <PlusIcon className="w-5 h-5" /> Add New Card
         </motion.button>
       </div>
+
+      {/* MODULE TAB NAV */}
+      <div className={`flex gap-1 p-1 rounded-2xl mb-6 w-fit ${isDark ? 'bg-dark-800/80' : 'bg-dark-100/60'}`} style={{ border: `1px solid ${isDark ? '#30363d' : '#e5e7eb'}` }}>
+        {[{ id: 'overview', icon: CreditCardIcon, label: 'Overview' },
+          { id: 'transactions', icon: ClockIcon, label: 'Transactions' },
+          { id: 'analytics', icon: ChartBarIcon, label: 'Analytics' },
+          { id: 'budget', icon: ArrowTrendingUpIcon, label: 'Budget' },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px', borderRadius: 14, fontSize: 13, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.2s', border: 'none',
+              background: activeTab === tab.id
+                ? (isDark ? '#1a2235' : '#ffffff')
+                : 'transparent',
+              color: activeTab === tab.id
+                ? '#1abf94'
+                : (isDark ? '#6b7280' : '#9ca3af'),
+              boxShadow: activeTab === tab.id ? '0 1px 6px rgba(0,0,0,0.12)' : 'none',
+            }}
+          >
+            <tab.icon style={{ width: 15, height: 15 }} />
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* GLOBAL CC STATS BAR — shown when cards exist */}
+      {creditCards.length > 0 && (() => {
+        const totalOutstanding = creditCards.reduce((s, c) => s + parseFloat(c.liability || 0), 0);
+        const totalLimit = creditCards.reduce((s, c) => s + parseFloat(c.credit_limit || 0), 0);
+        const totalAvailable = Math.max(0, totalLimit - totalOutstanding);
+        const combinedUtil = totalLimit > 0 ? ((totalOutstanding / totalLimit) * 100) : 0;
+        const utilColor = combinedUtil > 70 ? '#ef4444' : combinedUtil > 30 ? '#f59e0b' : '#10b981';
+        const currentCycleDate = new Date();
+        const allCcTxnsThisCycle = transactions.filter(t => {
+          const isCC = creditCards.some(c => c.id === t.account_id);
+          return isCC && t.date >= FINANCIAL_MONTHS[0]?.startDate && t.date <= FINANCIAL_MONTHS[0]?.endDate;
+        });
+        const totalSpentThisCycle = allCcTxnsThisCycle.filter(t => parseFloat(t.amount) < 0).reduce((s, t) => s + Math.abs(parseFloat(t.amount)), 0);
+        const totalPaidThisCycle = allCcTxnsThisCycle.filter(t => parseFloat(t.amount) > 0 && t.category === 'Credit Card Payment').reduce((s, t) => s + parseFloat(t.amount), 0);
+        const stats = [
+          { label: 'Total Outstanding', value: fmt(totalOutstanding), color: '#ef4444', sub: `${creditCards.length} card${creditCards.length > 1 ? 's' : ''}` },
+          { label: 'Available Credit', value: fmt(totalAvailable), color: '#10b981', sub: `of ${fmt(totalLimit)} total` },
+          { label: 'Combined Utilization', value: `${combinedUtil.toFixed(1)}%`, color: utilColor, sub: combinedUtil > 30 ? 'Keep below 30%' : 'Healthy range' },
+          { label: 'Spent This Cycle', value: fmt(totalSpentThisCycle), color: '#8b5cf6', sub: 'All cards' },
+          { label: 'Paid This Cycle', value: fmt(totalPaidThisCycle), color: '#1abf94', sub: 'Bill payments' },
+        ];
+        return (
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+            gap: 12, marginBottom: 20,
+          }}>
+            {stats.map(s => (
+              <div key={s.label} className={`rounded-2xl border ${isDark ? 'bg-dark-800/80 border-dark-700' : 'bg-white border-dark-100'}`}
+                style={{ padding: '14px 18px' }}>
+                <p style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: isDark ? '#6b7280' : '#9ca3af', marginBottom: 6 }}>{s.label}</p>
+                <p style={{ margin: 0, fontSize: 22, fontWeight: 900, color: s.color, letterSpacing: '-0.5px' }}>{s.value}</p>
+                <p style={{ margin: '3px 0 0', fontSize: 11, color: isDark ? '#6b7280' : '#9ca3af' }}>{s.sub}</p>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {creditCards.length === 0 && !showAddCard && (
         <div className={`p-10 text-center rounded-3xl border-2 border-dashed ${isDark ? 'border-dark-700 bg-dark-800/50' : 'border-dark-300 bg-white/50'} flex flex-col items-center justify-center`}>
@@ -285,7 +385,7 @@ export default function CreditCards() {
         </div>
       )}
 
-      {/* CARD TABS */}
+      {/* CARD TABS (card selector) - shown on all tabs */}
       {creditCards.length > 0 && (
         <div className="flex overflow-x-auto pb-4 gap-3 mb-4 snap-x hide-scrollbar">
           {creditCards.map(card => (
@@ -309,8 +409,8 @@ export default function CreditCards() {
         </div>
       )}
 
-      {/* ACTIVE CARD DASHBOARD */}
-      {activeCard && metrics && (
+      {/* ACTIVE CARD DASHBOARD — Overview tab only */}
+      {activeTab === 'overview' && activeCard && metrics && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
           
           {/* TOP METRICS */}
@@ -709,6 +809,209 @@ export default function CreditCards() {
         </motion.div>
       )}
 
+      {/* ─── TRANSACTIONS TAB ─── */}
+      {activeTab === 'transactions' && activeCard && (
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+          <div className={`rounded-3xl border shadow-sm overflow-hidden ${isDark ? 'bg-dark-800 border-dark-700' : 'bg-white border-dark-100'}`}>
+            <div className={`px-6 py-4 border-b flex items-center justify-between ${isDark ? 'border-dark-700' : 'border-dark-100'}`}>
+              <div>
+                <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-dark-900'}`}>CC Transactions</h3>
+                <p className={`text-xs ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{activeCard.account_name} · {metrics?.cycle?.label}</p>
+              </div>
+              <button onClick={() => setShowAddCCTxn(true)} className="btn-primary text-sm py-1.5 px-4">
+                <PlusIcon className="w-4 h-4" /> Add
+              </button>
+            </div>
+            <div className="px-6 py-3 border-b" style={{ borderColor: isDark ? '#30363d' : '#e5e7eb' }}>
+              <input
+                type="text" placeholder="Search transactions..."
+                value={ccTxnSearch} onChange={e => setCcTxnSearch(e.target.value)}
+                className="input-field" style={{ maxWidth: 320 }}
+              />
+            </div>
+            {(() => {
+              const filtered = cycleTxnsFiltered.filter(t =>
+                !ccTxnSearch || (t.category || '').toLowerCase().includes(ccTxnSearch.toLowerCase()) ||
+                (t.notes || '').toLowerCase().includes(ccTxnSearch.toLowerCase()) ||
+                String(Math.abs(t.amount)).includes(ccTxnSearch)
+              );
+              if (filtered.length === 0) return (
+                <div className={`p-10 text-center ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>No transactions found.</div>
+              );
+              return (
+                <div className="divide-y" style={{ borderColor: isDark ? '#30363d' : '#e5e7eb' }}>
+                  {filtered.map(txn => {
+                    const isExp = parseFloat(txn.amount) < 0;
+                    return (
+                      <div key={txn.id} className={`px-6 py-4 flex justify-between items-center hover:bg-opacity-50 transition-colors ${isDark ? 'hover:bg-dark-700' : 'hover:bg-dark-50'}`}>
+                        <div className="flex items-center gap-4">
+                          <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm ${isExp ? (isDark ? 'bg-dark-700 text-dark-300' : 'bg-dark-100 text-dark-600') : 'bg-emerald-500/10 text-emerald-500'}`}>
+                            {isExp ? '−' : '+'}
+                          </div>
+                          <div>
+                            <p className={`font-semibold text-sm ${isDark ? 'text-white' : 'text-dark-900'}`}>{txn.category}</p>
+                            <p className={`text-xs ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{formatShortDate(txn.date)}{txn.notes ? ` · ${txn.notes}` : ''}</p>
+                          </div>
+                        </div>
+                        <span className={`font-bold text-sm ${isExp ? (isDark ? 'text-white' : 'text-dark-900') : 'text-emerald-500'}`}>
+                          {isExp ? '-' : '+'}₹{Math.abs(txn.amount).toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        </motion.div>
+      )}
+
+      {/* ─── ANALYTICS TAB ─── */}
+      {activeTab === 'analytics' && activeCard && metrics && (
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+          {/* Multi-cycle spend trend */}
+          {(() => {
+            const trendData = FINANCIAL_MONTHS.slice(0, 6).map(cycle => {
+              const txns = activeTxns.filter(t => t.date >= cycle.startDate && t.date <= cycle.endDate);
+              const spent = txns.filter(t => parseFloat(t.amount) < 0).reduce((s, t) => s + Math.abs(parseFloat(t.amount)), 0);
+              const paid  = txns.filter(t => parseFloat(t.amount) > 0).reduce((s, t) => s + parseFloat(t.amount), 0);
+              return { cycle: cycle.label.replace(/^.*?-/, '').trim(), spent, paid };
+            }).reverse();
+            return (
+              <div className={`rounded-3xl p-6 border shadow-sm ${isDark ? 'bg-dark-800 border-dark-700' : 'bg-white border-dark-100'}`}>
+                <h3 className={`font-bold text-lg mb-6 ${isDark ? 'text-white' : 'text-dark-900'}`}>Spending Trend (Last 6 Cycles)</h3>
+                <div style={{ height: 220 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={trendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                      <defs>
+                        <linearGradient id="ccSpentGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="ccPaidGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#1f2937' : '#f3f4f6'} />
+                      <XAxis dataKey="cycle" tick={{ fontSize: 11, fill: isDark ? '#6b7280' : '#9ca3af' }} />
+                      <YAxis tick={{ fontSize: 11, fill: isDark ? '#6b7280' : '#9ca3af' }} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} />
+                      <Tooltip formatter={v => [`₹${v.toLocaleString('en-IN')}`, '']} contentStyle={{ backgroundColor: isDark ? '#1e293b' : '#fff', border: 'none', borderRadius: 10 }} />
+                      <Area type="monotone" dataKey="spent" name="Spent" stroke="#ef4444" strokeWidth={2} fill="url(#ccSpentGrad)" />
+                      <Area type="monotone" dataKey="paid" name="Paid" stroke="#10b981" strokeWidth={2} fill="url(#ccPaidGrad)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Key analytics metrics */}
+          {(() => {
+            const allCycleTxns = activeTxns.filter(t => parseFloat(t.amount) < 0);
+            const avgMonthly = FINANCIAL_MONTHS.slice(0, 6).map(cycle => {
+              return activeTxns.filter(t => t.date >= cycle.startDate && t.date <= cycle.endDate && parseFloat(t.amount) < 0).reduce((s,t) => s + Math.abs(parseFloat(t.amount)), 0);
+            });
+            const avg = avgMonthly.length > 0 ? avgMonthly.reduce((a,b)=>a+b,0)/avgMonthly.filter(v=>v>0).length : 0;
+            const projected = metrics.cycleSpend > 0 && metrics.cycle ? (metrics.cycleSpend / Math.max(1, new Date().getDate() - new Date(metrics.cycle.startDate).getDate() + 1)) * 30 : 0;
+            const daysUntilDue = metrics.dueDate ? Math.max(0, Math.round((new Date(metrics.dueDate) - new Date()) / 86400000)) : null;
+            return (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { label: 'Avg Monthly Spend', value: fmt(avg), color: '#f59e0b', sub: 'Last 6 cycles' },
+                  { label: 'Projected Statement', value: fmt(projected), color: '#8b5cf6', sub: 'Based on pace' },
+                  { label: 'Days Until Due', value: daysUntilDue !== null ? `${daysUntilDue}d` : '—', color: daysUntilDue !== null && daysUntilDue < 5 ? '#ef4444' : '#1abf94', sub: formatShortDate(metrics.dueDate) },
+                  { label: 'Utilization', value: `${metrics.utilPercent}%`, color: parseFloat(metrics.utilPercent) > 70 ? '#ef4444' : parseFloat(metrics.utilPercent) > 30 ? '#f59e0b' : '#10b981', sub: `${fmt(metrics.balance)} of ${fmt(metrics.limit)}` },
+                ].map(s => (
+                  <div key={s.label} className={`rounded-2xl p-5 border ${isDark ? 'bg-dark-800 border-dark-700' : 'bg-white border-dark-100'}`}>
+                    <p className={`text-xs font-semibold uppercase tracking-wider mb-2 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{s.label}</p>
+                    <p className="text-2xl font-black" style={{ color: s.color }}>{s.value}</p>
+                    <p className={`text-xs mt-1 ${isDark ? 'text-dark-500' : 'text-dark-400'}`}>{s.sub}</p>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </motion.div>
+      )}
+
+      {/* ─── BUDGET TAB ─── */}
+      {activeTab === 'budget' && activeCard && metrics && (
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
+          {(() => {
+            const cycleSpend = metrics.cycleSpend;
+            const hasLimit = ccBudgetLimit > 0;
+            const pct = hasLimit ? (cycleSpend / ccBudgetLimit) * 100 : 0;
+            const cappedPct = Math.min(pct, 100);
+            const remaining = hasLimit ? Math.max(0, ccBudgetLimit - cycleSpend) : 0;
+            const budgetStatus = pct > 100 ? { label: 'Over Budget', color: '#ef4444' } : pct >= 80 ? { label: 'Warning', color: '#f59e0b' } : { label: 'Safe', color: '#1abf94' };
+            const isDark_ = isDark;
+            return (
+              <div className={`rounded-3xl p-6 border shadow-sm ${isDark ? 'bg-dark-800 border-dark-700' : 'bg-white border-dark-100'}`}>
+                <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+                  <div>
+                    <h3 className={`font-bold text-xl ${isDark ? 'text-white' : 'text-dark-900'}`}>CC Spending Budget</h3>
+                    <p className={`text-sm ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>{formatShortDate(metrics.cycle.startDate)} — {formatShortDate(metrics.cycle.endDate)}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {hasLimit && <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 99, background: `${budgetStatus.color}15`, color: budgetStatus.color }}>{budgetStatus.label}</span>}
+                    {ccBudgetEditing ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: '#6366f1' }}>₹</span>
+                        <input type="number" value={ccBudgetInput} onChange={e => setCcBudgetInput(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') handleSaveCcBudget(); if (e.key === 'Escape') setCcBudgetEditing(false); }}
+                          autoFocus className="input-field" style={{ width: 120 }} placeholder="0.00" />
+                        <button onClick={handleSaveCcBudget} className="btn-primary" style={{ padding: '6px 12px' }}><CheckIcon className="w-4 h-4" /></button>
+                        <button onClick={() => setCcBudgetEditing(false)} className="btn-secondary" style={{ padding: '6px 12px' }}><XMarkIcon className="w-4 h-4" /></button>
+                      </div>
+                    ) : (
+                      <button onClick={() => { setCcBudgetInput(ccBudgetLimit > 0 ? String(ccBudgetLimit) : ''); setCcBudgetEditing(true); }} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <PencilSquareIcon className="w-4 h-4" /> {hasLimit ? fmt(ccBudgetLimit) : 'Set Limit'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                  {[{ label: 'Spent (CC)', val: fmt(cycleSpend), color: '#ef4444' },
+                    ...(hasLimit ? [{ label: 'Remaining', val: fmt(remaining), color: remaining === 0 ? '#ef4444' : '#1abf94' }, { label: 'Used %', val: `${pct.toFixed(0)}%`, color: budgetStatus.color }] : [{ label: 'Paid Back', val: fmt(metrics.cyclePaid), color: '#1abf94' }])
+                  ].map(s => (
+                    <div key={s.label} style={{ textAlign: 'center', padding: '16px', background: isDark ? '#0a0e14' : '#f9fafb', borderRadius: 14 }}>
+                      <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: s.color }}>{s.val}</p>
+                      <p style={{ margin: '4px 0 0', fontSize: 11, color: isDark ? '#9ca3af' : '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+                {hasLimit && (
+                  <div>
+                    <div style={{ height: 12, borderRadius: 99, background: isDark ? '#1a2235' : '#f3f4f6', overflow: 'hidden', marginBottom: 6 }}>
+                      <motion.div initial={{ width: 0 }} animate={{ width: `${cappedPct}%` }} transition={{ duration: 0.8 }}
+                        style={{ height: '100%', borderRadius: 99, background: pct > 100 ? '#ef4444' : pct >= 80 ? '#f59e0b' : '#1abf94' }} />
+                    </div>
+                    <div className="flex justify-between" style={{ fontSize: 11, color: isDark ? '#9ca3af' : '#6b7280' }}>
+                      <span>{cappedPct.toFixed(0)}% used</span><span>Limit: {fmt(ccBudgetLimit)}</span>
+                    </div>
+                  </div>
+                )}
+                {categoryData.length > 0 && (
+                  <div style={{ marginTop: 20 }}>
+                    <p style={{ fontSize: 13, fontWeight: 700, color: isDark ? '#f3f4f6' : '#111827', marginBottom: 10 }}>Spending by Category</p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {categoryData.map((cat, i) => (
+                        <div key={cat.name} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 20, background: isDark ? '#161b22' : '#f3f4f6', border: `1px solid ${isDark ? '#30363d' : '#e5e7eb'}` }}>
+                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: COLORS[i % COLORS.length] }} />
+                          <span style={{ fontSize: 12, fontWeight: 600, color: isDark ? '#d1d5db' : '#374151' }}>{cat.name}</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: isDark ? '#f3f4f6' : '#111827' }}>₹{cat.value.toLocaleString('en-IN')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </motion.div>
+      )}
+
       {/* MODAL */}
       <AnimatePresence>
         {showAddCard && (
@@ -817,6 +1120,51 @@ export default function CreditCards() {
               </div>
             </motion.div>
           </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ── Add CC Transaction Modal ── */}
+        <AnimatePresence>
+          {showAddCCTxn && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} className={`w-full max-w-md rounded-3xl shadow-2xl overflow-hidden ${isDark ? 'bg-dark-800 border border-dark-700' : 'bg-white border border-dark-200'}`}>
+                <div className={`px-6 py-5 border-b ${isDark ? 'border-dark-700' : 'border-dark-100'}`}>
+                  <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-dark-900'}`}>Add Credit Card Transaction</h3>
+                  <p className={`text-xs mt-1 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Card: {activeCard?.account_name}</p>
+                </div>
+                <form onSubmit={(e) => { e.preventDefault(); addCCTxnMutation.mutate(ccTxnForm); }} className="p-6 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Amount (₹)</label>
+                      <input required type="number" step="0.01" min="0.01" value={ccTxnForm.amount} onChange={e => setCcTxnForm({...ccTxnForm, amount: e.target.value})} className="input-field w-full" placeholder="0.00" autoFocus />
+                    </div>
+                    <div>
+                      <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Date</label>
+                      <input required type="date" value={ccTxnForm.date} onChange={e => setCcTxnForm({...ccTxnForm, date: e.target.value})} className="input-field w-full" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Category</label>
+                    <select required value={ccTxnForm.category} onChange={e => setCcTxnForm({...ccTxnForm, category: e.target.value})} className="input-field w-full">
+                      <option value="">— Select Category —</option>
+                      {CC_TXN_CATEGORIES.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${isDark ? 'text-dark-400' : 'text-dark-500'}`}>Notes (Optional)</label>
+                    <input type="text" value={ccTxnForm.notes} onChange={e => setCcTxnForm({...ccTxnForm, notes: e.target.value})} className="input-field w-full" placeholder="e.g. Dinner with friends" />
+                  </div>
+                  <div className="flex gap-3 pt-4">
+                    <button type="button" onClick={() => setShowAddCCTxn(false)} className="btn-secondary flex-1 py-2.5">Cancel</button>
+                    <button type="submit" disabled={addCCTxnMutation.isPending} className="btn-primary flex-1 py-2.5 shadow-lg shadow-primary-500/20">
+                      {addCCTxnMutation.isPending ? 'Saving...' : 'Add Transaction'}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </motion.div>
           )}
         </AnimatePresence>
 

@@ -1,23 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragOverlay,
-} from '@dnd-kit/core';
-import {
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-  useSortable,
-  arrayMove,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+import { Responsive as ResponsiveGridLayout, useContainerWidth } from 'react-grid-layout';
+import 'react-grid-layout/css/styles.css';
+import 'react-resizable/css/styles.css';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, AreaChart, Area, CartesianGrid,
@@ -43,7 +29,7 @@ import {
   ShieldCheckIcon, ArrowTrendingUpIcon, ExclamationTriangleIcon,
   LightBulbIcon, FireIcon, CreditCardIcon, SparklesIcon,
   CheckCircleIcon, FlagIcon, AdjustmentsHorizontalIcon,
-  Bars3Icon,
+  Bars3Icon, XMarkIcon, PencilSquareIcon,
 } from '@heroicons/react/24/outline';
 import { fmt } from '../utils/format';
 import CustomTooltip from '../components/CustomTooltip';
@@ -198,47 +184,8 @@ const HealthGauge = ({ score, isDark }) => {
 const CHART_COLORS = ['#1abf94', '#34d399', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
 /* ════════════════════════════════════════════════════════════════
-   SORTABLE WIDGET WRAPPER
+   WIDGET WRAPPER HELPERS
    ════════════════════════════════════════════════════════════════ */
-function SortableWidget({ id, children, isDragging }) {
-  const {
-    attributes, listeners, setNodeRef, transform, transition, isDragging: isSelfDragging,
-  } = useSortable({ id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition: transition || 'transform 220ms cubic-bezier(0.4,0,0.2,1)',
-    opacity: isSelfDragging ? 0.35 : 1,
-    position: 'relative',
-    outline: 'none',
-  };
-
-  return (
-    <div ref={setNodeRef} style={style} {...attributes}>
-      {/* Drag handle — only the grip icon triggers drag */}
-      <div
-        {...listeners}
-        style={{
-          position: 'absolute', top: 12, right: 12, zIndex: 2,
-          width: 28, height: 28, borderRadius: 8,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'grab', opacity: 0,
-          transition: 'opacity 0.15s',
-          color: 'inherit',
-        }}
-        className="widget-drag-handle"
-        title="Drag to reorder"
-      >
-        <Bars3Icon style={{ width: 16, height: 16 }} />
-      </div>
-      <style>{`
-        div:hover > .widget-drag-handle { opacity: 0.4 !important; }
-        .widget-drag-handle:hover { opacity: 0.8 !important; }
-      `}</style>
-      {children}
-    </div>
-  );
-}
 
 /* ════════════════════════════════════════════════════════════════
    DASHBOARD — MAIN COMPONENT
@@ -250,20 +197,17 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showCustomizer, setShowCustomizer] = useState(false);
+  const [editMode, setEditMode] = useState(false);
   const [activeId, setActiveId] = useState(null);
-
-  const { layout, setLayout, toggleWidget, resizeWidget, resetLayout } = useDashboardLayout(currentUser?.uid);
+  const [flippedWidget, setFlippedWidget] = useState(null);
 
   const [goals, setGoals] = useState([]);
   const [mutualFunds, setMutualFunds] = useState([]);
   const [lending, setLending] = useState([]);
   const [metricsLoading, setMetricsLoading] = useState(true);
 
-  // DnD sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
+  const { width: containerWidth, containerRef } = useContainerWidth();
+  const { layout, setLayout, toggleWidget, resizeWidget, resetLayout } = useDashboardLayout(currentUser?.uid);
 
   useEffect(() => {
     const handler = (e) => { if (e.key === 'n' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); setShowQuickAdd(true); } };
@@ -932,6 +876,152 @@ export default function Dashboard() {
       </div>
     ),
 
+    /* ── Savings Rate Widget ───────────────────────────────────────── */
+    savings_rate_widget: (() => {
+      const rate = savingsRate;
+      const benchmarks = [{ label: '50/30/20 Rule', target: 20, color: '#1abf94' }, { label: 'Aggressive', target: 30, color: '#8b5cf6' }, { label: 'FIRE Goal', target: 50, color: '#f59e0b' }];
+      const status = rate >= 30 ? { label: 'Excellent', color: '#10b981' } : rate >= 20 ? { label: 'Good', color: '#1abf94' } : rate >= 10 ? { label: 'Fair', color: '#f59e0b' } : { label: 'Low', color: '#ef4444' };
+      return (
+        <div style={{ padding: '20px 22px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+            <div>
+              <span style={{ fontSize: 14, fontWeight: 700, color: textMain, display: 'block' }}>Savings Rate</span>
+              <span style={{ fontSize: 11, color: textSub }}>This cycle vs benchmarks</span>
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 99, background: `${status.color}18`, color: status.color }}>{status.label}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 20 }}>
+            <span style={{ fontSize: 44, fontWeight: 900, color: status.color, letterSpacing: '-2px', lineHeight: 1 }}>{rate.toFixed(1)}</span>
+            <span style={{ fontSize: 18, fontWeight: 700, color: status.color }}>%</span>
+          </div>
+          {benchmarks.map(b => {
+            const isMet = rate >= b.target;
+            return (
+              <div key={b.label} style={{ marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11 }}>
+                  <span style={{ color: textSub, fontWeight: 600 }}>{b.label}</span>
+                  <span style={{ color: isMet ? b.color : textSub, fontWeight: 700 }}>{b.target}% {isMet ? '✓' : ''}</span>
+                </div>
+                <div style={{ height: 5, borderRadius: 3, background: isDark ? '#1f2937' : '#e5e7eb', overflow: 'hidden' }}>
+                  <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min((rate / b.target) * 100, 100)}%` }}
+                    transition={{ duration: 0.8, ease: 'easeOut' }}
+                    style={{ height: '100%', background: isMet ? b.color : `${b.color}60`, borderRadius: 3 }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    })(),
+
+    /* ── Burn Rate Widget ──────────────────────────────────────────── */
+    burn_rate: (() => {
+      const monthlyBurn = cashFlow.dailyAvgSpend * 30;
+      const totalAssets = accountsBalance + totalSavings;
+      const runway = monthlyBurn > 0 ? (totalAssets / monthlyBurn) : 999;
+      const runwayLabel = runway >= 12 ? '12+ months' : runway >= 6 ? `${runway.toFixed(1)} months` : runway >= 1 ? `${runway.toFixed(1)} months ⚠️` : `${(runway * 30).toFixed(0)} days 🛑`;
+      const runwayColor = runway >= 6 ? '#10b981' : runway >= 3 ? '#f59e0b' : '#ef4444';
+      return (
+        <div style={{ padding: '20px 22px' }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: textMain, display: 'block', marginBottom: 3 }}>Burn Rate & Runway</span>
+          <p style={{ fontSize: 11, color: textSub, marginBottom: 16 }}>Monthly spending pace vs financial cushion</p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {[{ label: 'Monthly Burn', value: fmt(monthlyBurn), color: '#ef4444', sub: `${fmt(cashFlow.dailyAvgSpend)}/day` },
+              { label: 'Runway', value: runwayLabel, color: runwayColor, sub: `Total assets: ${fmt(totalAssets)}` },
+              { label: 'Income', value: fmt(cashFlow.totalIncome), color: '#10b981', sub: 'This cycle' },
+              { label: 'Net Remaining', value: fmt(cashFlow.netSavings), color: cashFlow.netSavings >= 0 ? '#1abf94' : '#ef4444', sub: 'After expenses' },
+            ].map(s => (
+              <div key={s.label} style={{ padding: '12px 14px', borderRadius: 12, background: isDark ? '#0f1621' : '#f9fafb', border: `1px solid ${isDark ? '#1a2235' : '#e5e7eb'}` }}>
+                <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 600, color: textSub, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{s.label}</p>
+                <p style={{ margin: '0 0 2px', fontSize: 16, fontWeight: 800, color: s.color, letterSpacing: '-0.5px' }}>{s.value}</p>
+                <p style={{ margin: 0, fontSize: 10, color: textSub }}>{s.sub}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    })(),
+
+    /* ── Expense/Income Ratio ──────────────────────────────────── */
+    expense_income_ratio: (() => {
+      const ratio = cashFlow.totalIncome > 0 ? (cashFlow.totalExpenses / cashFlow.totalIncome) * 100 : 0;
+      const color = ratio > 100 ? '#ef4444' : ratio > 80 ? '#f59e0b' : '#1abf94';
+      const label = ratio > 100 ? 'Overspending' : ratio > 80 ? 'Tight Budget' : ratio > 60 ? 'Moderate' : 'Healthy';
+      const maxVal = Math.max(cashFlow.totalIncome, cashFlow.totalExpenses, 1);
+      return (
+        <div style={{ padding: '20px 22px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+            <div>
+              <span style={{ fontSize: 14, fontWeight: 700, color: textMain, display: 'block' }}>Expense / Income Ratio</span>
+              <span style={{ fontSize: 11, color: textSub }}>How much of your income is spent</span>
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 99, background: `${color}18`, color }}>{label}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 20 }}>
+            <span style={{ fontSize: 40, fontWeight: 900, color, letterSpacing: '-2px' }}>{ratio.toFixed(0)}</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color }}>%</span>
+            <span style={{ fontSize: 12, color: textSub, marginLeft: 6 }}>of income spent</span>
+          </div>
+          {[{ label: 'Total Income', value: cashFlow.totalIncome, color: '#10b981' }, { label: 'Total Expenses', value: cashFlow.totalExpenses, color: '#ef4444' }].map(bar => (
+            <div key={bar.label} style={{ marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12 }}>
+                <span style={{ color: textSub, fontWeight: 600 }}>{bar.label}</span>
+                <span style={{ color: bar.color, fontWeight: 700 }}>{fmt(bar.value)}</span>
+              </div>
+              <div style={{ height: 8, borderRadius: 4, background: isDark ? '#1f2937' : '#e5e7eb', overflow: 'hidden' }}>
+                <motion.div initial={{ width: 0 }} animate={{ width: `${(bar.value / maxVal) * 100}%` }}
+                  transition={{ duration: 0.9, ease: 'easeOut' }}
+                  style={{ height: '100%', background: bar.color, borderRadius: 4 }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    })(),
+
+    /* ── Credit Utilization Summary ────────────────────────────── */
+    credit_utilization_summary: (() => {
+      const totalLimit = creditCards.reduce((s, c) => s + parseFloat(c.credit_limit || 0), 0);
+      const totalOwed  = creditCards.reduce((s, c) => s + parseFloat(c.liability || 0), 0);
+      const util = totalLimit > 0 ? (totalOwed / totalLimit) * 100 : 0;
+      const utilColor = util > 70 ? '#ef4444' : util > 30 ? '#f59e0b' : '#10b981';
+      const utilLabel = util > 70 ? 'High Risk' : util > 30 ? 'Moderate' : 'Healthy';
+      return (
+        <div style={{ padding: '20px 22px' }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: textMain, display: 'block', marginBottom: 3 }}>Credit Utilization</span>
+          <p style={{ fontSize: 11, color: textSub, marginBottom: 16 }}>Combined across all {creditCards.length} card{creditCards.length !== 1 ? 's' : ''}</p>
+          {creditCards.length > 0 ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 8 }}>
+                <span style={{ fontSize: 40, fontWeight: 900, color: utilColor, letterSpacing: '-2px' }}>{util.toFixed(1)}</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: utilColor }}>%</span>
+                <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 99, marginLeft: 8, background: `${utilColor}18`, color: utilColor }}>{utilLabel}</span>
+              </div>
+              <div style={{ height: 10, borderRadius: 5, background: isDark ? '#1f2937' : '#e5e7eb', overflow: 'hidden', marginBottom: 14 }}>
+                <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(util, 100)}%` }}
+                  transition={{ duration: 0.9, ease: 'easeOut' }}
+                  style={{ height: '100%', background: `linear-gradient(90deg, #10b981, ${utilColor})`, borderRadius: 5 }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                <span style={{ color: textSub }}>Outstanding: <strong style={{ color: '#ef4444' }}>{fmt(totalOwed)}</strong></span>
+                <span style={{ color: textSub }}>Available: <strong style={{ color: '#10b981' }}>{fmt(Math.max(0, totalLimit - totalOwed))}</strong></span>
+              </div>
+              <div style={{ display: 'flex', gap: 4, marginTop: 12, flexWrap: 'wrap' }}>
+                {[{pct:30,label:'30% limit',color:'#10b981'},{pct:70,label:'70% danger',color:'#ef4444'}].map(m => (
+                  <span key={m.label} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 99, background: `${m.color}15`, color: m.color, fontWeight: 600 }}>{m.label}</span>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '20px 0' }}>
+              <span style={{ fontSize: 32 }}>💳</span>
+              <p style={{ fontSize: 12, color: textSub, margin: '8px 0 0' }}>No credit cards added yet</p>
+            </div>
+          )}
+        </div>
+      );
+    })(),
+
   }), [
     isDark, textMain, textSub, netWorth, accountsBalance, totalSavings, totalLiabilities, savingsRate,
     currentCycle, cycleInfo, cashFlow, financialHealthScore, creditCards, transactions, categoryData,
@@ -978,17 +1068,16 @@ export default function Dashboard() {
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
-            onClick={() => setShowCustomizer(true)}
+            onClick={() => { setEditMode(v => !v); setShowCustomizer(v => !v); }}
             className="btn-customize"
             style={{
-              borderColor: isDark ? '#30363d' : '#e5e7eb',
-              color: textSub,
+              borderColor: editMode ? '#1abf94' : (isDark ? '#30363d' : '#e5e7eb'),
+              color: editMode ? '#1abf94' : textSub,
+              background: editMode ? 'rgba(26,191,148,0.08)' : 'transparent',
             }}
-            onMouseOver={(e) => { e.currentTarget.style.borderColor = '#1abf94'; e.currentTarget.style.color = '#1abf94'; }}
-            onMouseOut={(e) => { e.currentTarget.style.borderColor = isDark ? '#30363d' : '#e5e7eb'; e.currentTarget.style.color = textSub; }}
           >
             <AdjustmentsHorizontalIcon style={{ width: 15, height: 15 }} />
-            Customize
+            {editMode ? 'Done Editing' : 'Customize'}
           </button>
           <button onClick={() => setShowQuickAdd(true)} className="btn-primary" style={{ padding: '6px 14px', fontSize: 13 }}>
             <PlusIcon style={{ width: 14, height: 14 }} /> Add
@@ -997,61 +1086,116 @@ export default function Dashboard() {
       </div>
 
       {/* ─── DnD Widget Grid ─── */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext
-          items={visibleWidgets.map((w) => w.id)}
-          strategy={verticalListSortingStrategy}
+      <div ref={containerRef}>
+        <ResponsiveGridLayout
+          className="layout"
+          width={containerWidth}
+          layouts={{ lg: visibleWidgets, md: visibleWidgets, sm: visibleWidgets, xs: visibleWidgets, xxs: visibleWidgets }}
+          breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
+          cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
+          rowHeight={120}
+          onLayoutChange={(currentLayout) => {
+            if (editMode) setLayout(currentLayout);
+          }}
+          isDraggable={editMode}
+          isResizable={editMode}
+          resizeHandles={['s', 'e', 'se']}
+          draggableHandle=".widget-drag-handle"
+          margin={[20, 20]}
         >
-          <div className="dashboard-widget-grid">
-            {visibleWidgets.map((item) => {
-              const content = widgetComponents[item.id];
-              if (!content) return null;
-              return (
-                <SortableWidget key={item.id} id={item.id}>
-                  <motion.div
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="glass-card"
-                    style={{ overflow: 'hidden' }}
-                  >
-                    {content}
-                  </motion.div>
-                </SortableWidget>
-              );
-            })}
-          </div>
-        </SortableContext>
-
-        {/* Drag overlay — floats under cursor */}
-        <DragOverlay dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.18,0.67,0.6,1.22)' }}>
-          {activeWidget ? (
-            <div
-              className="glass-card widget-drag-overlay"
-              style={{ padding: '16px 20px', opacity: 0.9, pointerEvents: 'none' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 20 }}>
-                  {WIDGET_REGISTRY.find((r) => r.id === activeWidget.id)?.icon}
-                </span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: textMain }}>
-                  {WIDGET_REGISTRY.find((r) => r.id === activeWidget.id)?.title}
-                </span>
-              </div>
+        {visibleWidgets.map((item, idx) => {
+          const content = widgetComponents[item.id || item.i];
+          if (!content) return null;
+          const reg = WIDGET_REGISTRY.find(r => r.id === (item.id || item.i));
+          const isFlipped = flippedWidget === (item.id || item.i);
+          return (
+            <div key={item.i || item.id}>
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, delay: idx * 0.03 }}
+                className={`glass-card widget-flip-container ${isFlipped ? 'flipped' : ''}`}
+                style={{ overflow: isFlipped ? 'visible' : 'hidden', position: 'relative', width: '100%', height: '100%' }}
+              >
+                {editMode && (
+                  <div className="widget-edit-overlay">
+                    <div className="widget-drag-handle" style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'grab' }}>
+                      <Bars3Icon style={{ width: 14, height: 14, color: '#1abf94', flexShrink: 0 }} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: '#1abf94', letterSpacing: '0.04em', textTransform: 'uppercase' }}>drag</span>
+                    </div>
+                    <button
+                      onPointerDown={e => e.stopPropagation()}
+                      onClick={e => { e.stopPropagation(); toggleWidget(item.id || item.i); }}
+                      title="Hide widget"
+                      style={{
+                        marginLeft: 4, width: 22, height: 22, borderRadius: 5,
+                        border: `1px solid ${isDark ? '#30363d' : '#e5e7eb'}`, background: 'transparent',
+                        color: isDark ? '#9ca3af' : '#6b7280', cursor: 'pointer', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s',
+                      }}
+                      onMouseOver={e => { e.currentTarget.style.borderColor = '#ef4444'; e.currentTarget.style.color = '#ef4444'; }}
+                      onMouseOut={e => { e.currentTarget.style.borderColor = isDark ? '#30363d' : '#e5e7eb'; e.currentTarget.style.color = isDark ? '#9ca3af' : '#6b7280'; }}
+                    >
+                      <XMarkIcon style={{ width: 11, height: 11 }} />
+                    </button>
+                  </div>
+                )}
+                <div className="widget-flip-inner" style={{ height: '100%' }}>
+                  {/* Front */}
+                  <div className="widget-flip-front" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                    {/* Info button */}
+                    {reg?.flipInfo && !editMode && (
+                      <button
+                        className="widget-info-btn"
+                        onClick={e => { e.stopPropagation(); setFlippedWidget(isFlipped ? null : (item.id || item.i)); }}
+                        title="Learn more about this metric"
+                      >i</button>
+                    )}
+                    <div style={{ flex: 1, overflow: 'hidden' }}>
+                      {content}
+                    </div>
+                  </div>
+                  {/* Back — flip info panel */}
+                  {reg?.flipInfo && (
+                    <div className="widget-flip-back glass-card" style={{
+                      padding: '20px 22px',
+                      background: isDark
+                        ? 'linear-gradient(135deg, #0f1621, #161b22)'
+                        : 'linear-gradient(135deg, #f0fdf9, #fff)',
+                      borderRadius: 'var(--radius-lg)',
+                      height: '100%',
+                      overflowY: 'auto'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 22 }}>{reg.icon}</span>
+                          <p style={{ margin: 0, fontSize: 14, fontWeight: 800, color: '#1abf94' }}>{reg.flipInfo.title}</p>
+                        </div>
+                        <button
+                          onClick={() => setFlippedWidget(null)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: isDark ? '#9ca3af' : '#6b7280', padding: 4 }}
+                        ><XMarkIcon style={{ width: 16, height: 16 }} /></button>
+                      </div>
+                      {[['📌 What it is', reg.flipInfo.what], ['🔢 How it\'s calculated', reg.flipInfo.how], ['💡 Why it matters', reg.flipInfo.why], ['📈 Trend insight', reg.flipInfo.trend]].map(([label, text]) => (
+                        <div key={label} style={{ marginBottom: 12 }}>
+                          <p style={{ margin: '0 0 3px', fontSize: 11, fontWeight: 700, color: '#1abf94', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</p>
+                          <p style={{ margin: 0, fontSize: 12, color: isDark ? '#d1d5db' : '#374151', lineHeight: 1.6 }}>{text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
             </div>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+          );
+        })}
+        </ResponsiveGridLayout>
+      </div>
 
-      {/* ─── Customizer Drawer ─── */}
+      {/* ─── Customizer Edit Banner ─── */}
       <DashboardCustomizer
         open={showCustomizer}
-        onClose={() => setShowCustomizer(false)}
+        onClose={() => { setShowCustomizer(false); setEditMode(false); }}
         layout={layout}
         onToggle={toggleWidget}
         onResize={resizeWidget}

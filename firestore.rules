@@ -48,6 +48,9 @@ service cloud.firestore {
       match /budgetSnapshots/{cycleKey}/categories/{categoryId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+      match /budgetSnapshots/{cycleKey}/cycleCategories/{categoryId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
 
       // ── All other subcollections (goals, investments, lending, etc.) ──
       match /{subcollection}/{documentId} {
